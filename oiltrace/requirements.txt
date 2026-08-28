@@ -1,0 +1,30 @@
+# OilTrace — Python dependencies
+# Keep minimal: no GDAL, no native-compiler deps, no Redis/Celery
+
+# API
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+pydantic>=2,<3
+
+# Data / analytics
+duckdb>=0.10,<2
+
+# Geospatial (prebuilt wheels, no compiler needed)
+shapely>=2,<3
+geojson>=3,<4
+pyproj>=3,<4
+
+# Lightweight scientific (optional, only imported where needed)
+xarray>=2024.1
+numpy>=1.26,<3
+
+# Reporting helpers
+jinja2>=3,<4
+
+# Testing
+pytest>=8,<9
+httpx>=0.27,<1
+pytest-asyncio>=0.23,<1
+
+# Config
+pyyaml>=6,<7

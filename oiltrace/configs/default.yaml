@@ -1,0 +1,36 @@
+# OilTrace — Default Configuration
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  reload: true
+  log_level: "info"
+
+ui:
+  port: 5173
+  proxy_api: "http://localhost:8000"
+
+database:
+  # DuckDB file path (relative to project root)
+  # Set to ":memory:" for in-memory only
+  path: ":memory:"
+
+scoring:
+  # Frozen weights — do NOT change without product + legal sign-off
+  weights:
+    space: 0.35
+    time: 0.25
+    forward_fit: 0.25
+    behaviour: 0.15
+  # Score type label — NEVER use "probability" or "guilty"
+  score_type: "evidence_index"
+
+drift:
+  default_horizon_hours: 48.0
+  default_ensemble_size: 100
+  default_seed: 42
+
+demo:
+  enabled: true
+  seed_case_id: "case_demo_01"
+  data_dir: "data/demo"

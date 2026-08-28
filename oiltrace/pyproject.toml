@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "oiltrace"
+version = "0.1.0"
+description = "Satellite oil-spill detection, drift hindcasting, and AIS-based vessel attribution platform"
+authors = ["OilTrace Team"]
+readme = "README.md"
+packages = [
+    { include = "apps" },
+    { include = "services" },
+    { include = "packages" },
+]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = ">=0.110,<1"
+uvicorn = { version = ">=0.29,<1", extras = ["standard"] }
+pydantic = ">=2,<3"
+duckdb = ">=0.10,<2"
+shapely = ">=2,<3"
+geojson = ">=3,<4"
+pyproj = ">=3,<4"
+xarray = ">=2024.1"
+numpy = ">=1.26,<3"
+jinja2 = ">=3,<4"
+pyyaml = ">=6,<7"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8,<9"
+httpx = ">=0.27,<1"
+pytest-asyncio = ">=0.23,<1"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
