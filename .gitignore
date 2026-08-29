@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/out/
+data/env/
+data/scenes/
+data/ais/
+data/validation.json
+data/ais_sample.csv
+site/
+.context/
+.DS_Store
+*.egg-info/
