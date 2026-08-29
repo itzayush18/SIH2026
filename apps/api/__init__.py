@@ -1,1 +1,0 @@
-"""OilTrace API application."""

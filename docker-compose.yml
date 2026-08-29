@@ -1,0 +1,24 @@
+version: "3.9"
+# OILTRACE — free-data prototype. One container, laptop-friendly. Postgres/Redis
+# are commented out below; add them when you switch adapters from SIMULATION
+# to ONLINE and start persisting incidents across restarts.
+services:
+  oiltrace:
+    build: .
+    image: oiltrace:0.4.0
+    environment:
+      - PYTHONUNBUFFERED=1
+    env_file: [.env]
+    ports: ["8000:8000"]
+    volumes:
+      - ./data:/app/data
+    command: ["python","-m","oiltrace.server","--port","8000","--warm"]
+  # postgres:
+  #   image: postgis/postgis:16-3.4
+  #   environment: [POSTGRES_PASSWORD=oiltrace]
+  #   ports: ["5432:5432"]
+  #   volumes: [pgdata:/var/lib/postgresql/data]
+  # redis:
+  #   image: redis:7-alpine
+  #   ports: ["6379:6379"]
+# volumes: {pgdata: {}}
