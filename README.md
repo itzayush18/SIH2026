@@ -426,3 +426,55 @@ tests/          test_pipeline.py  test_new_features.py
 docs/           architecture.md · research.md · OILTRACE.md
 data/           out/ (incident evidence packs) · dataset/ (Kaggle training data, gitignored)
 ```
+
+---
+
+## How to Run
+
+### ▶ Quickest — single command, everything served on one port
+
+```bash
+# Install dependencies (first time only)
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+
+# Build the frontend (first time only, or after UI changes)
+cd frontend && pnpm install && pnpm build && cd ..
+
+# Launch — warms all 6 scenarios, then serves at http://127.0.0.1:8000/
+.venv\Scripts\python -m oiltrace.server --port 8000
+```
+
+Open **http://127.0.0.1:8000** in your browser. The dashboard will load with all
+incidents already processed and the real-data classifier active.
+
+---
+
+### ▶ Dev mode — live-reload frontend
+
+Run two terminals simultaneously:
+
+**Terminal 1:**
+```bash
+.venv\Scripts\python -m oiltrace.server --port 8000 --no-warm
+```
+
+**Terminal 2:**
+```bash
+cd frontend
+pnpm dev      # → http://127.0.0.1:5173  (API calls proxy to :8000)
+```
+
+---
+
+### ▶ Other commands
+
+| Task | Command |
+|---|---|
+| Run full pipeline demo (CLI, ~30 s) | `.venv\Scripts\python scripts/run_demo.py` |
+| Run 10-scenario batch validation | `.venv\Scripts\python scripts/validate.py --seeds 10` |
+| **Retrain classifier on real data** | `.venv\Scripts\python scripts/train_on_real_dataset.py` |
+| Retrain classifier on synthetic data | `.venv\Scripts\python scripts/train_classifier.py --scenes 45` |
+| Run unit tests | `.venv\Scripts\python tests/test_pipeline.py` |
+| Export synthetic AIS CSV | `.venv\Scripts\python scripts/export_ais.py` |
+| Rebuild frontend | `cd frontend && pnpm build` |
