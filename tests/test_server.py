@@ -1,6 +1,6 @@
 """HTTP smoke tests hitting the running OILTRACE server on localhost:8000.
 
-Skipped automatically if nothing answers on that port — no false failures when
+Skipped automatically if nothing answers on that port- no false failures when
 someone runs `pytest tests/` without booting the server first.
 """
 from __future__ import annotations

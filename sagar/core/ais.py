@@ -56,7 +56,7 @@ class Vessel:
     def position_at(self, t):
         """Linear interpolation between reports; None outside coverage.
 
-        Deliberately does *not* extrapolate across a gap boundary — a dark
+        Deliberately does *not* extrapolate across a gap boundary- a dark
         period is evidence, not something to paper over. `gaps()` exposes it.
         """
         ps = self.sorted_pings()
@@ -78,7 +78,7 @@ class Vessel:
         return [(a.t, b.t) for a, b in zip(ps, ps[1:]) if b.t - a.t > threshold]
 
     def track_geojson(self):
-        """[lon, lat, t_rel_s] triples — the time is what lets the map animate
+        """[lon, lat, t_rel_s] triples- the time is what lets the map animate
         vessel positions rather than only draw static polylines."""
         return [[p.lon, p.lat, p.t] for p in self.sorted_pings()]
 
@@ -202,7 +202,7 @@ def synthesize(origin: Origin, true_origin_xy, true_release_t, seed=17,
                    true_release_t - 4 * 3600.0, true_release_t + 6 * 3600.0, rng=rng))
 
     # -- 4. Decoy C: passes near the origin near the time, but steady speed,
-    #       steady course, no gap — behaviourally clean.
+    #       steady course, no gap- behaviourally clean.
     add("419003456", "MV SAHYADRI", 70, 176.0, 8.4,
         _lay_track(origin, (ox - 21000.0, oy + 26000.0), 150.0, 15.2,
                    true_release_t - 3 * 3600.0, true_release_t + 5 * 3600.0, rng=rng))

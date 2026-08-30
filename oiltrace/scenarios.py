@@ -1,8 +1,8 @@
-"""Named scenarios — the hackathon replay reel.
+"""Named scenarios- the hackathon replay reel.
 
 Every scenario runs through the *same* production pipeline (SAR simulator +
 detect + drift + inversion + attribution). Nothing is a hand-cut fake for the
-demo; the parameters differ, the physics does not — per spec §35 and §56.
+demo; the parameters differ, the physics does not- per spec §35 and §56.
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ SCENARIOS = [
     Scenario("laccadive-fishing", "OIL-2026-0040 · look-alike",
              "Suspected look-alike · Laccadive Sea",
              seed=32, origin=Origin(11.8, 73.2), difficulty="skeptical",
-             story="A dark biogenic film — soft edges, low contrast. "
+             story="A dark biogenic film- soft edges, low contrast. "
                    "The classifier should reject it or return low P(oil).",
              tags=("look-alike", "false-positive-test")),
     Scenario("gulf-of-kutch", "OIL-2026-0039 · nearshore",
@@ -61,6 +61,17 @@ SCENARIOS = [
              story="High wind mixes the slick, reducing damping contrast. "
                    "Segmentation IoU drops; the pipeline continues under a downgraded confidence.",
              tags=("stormy", "low-contrast", "degraded")),
+    Scenario("zenodo-real", "OIL-2026-0043 · Zenodo Sentinel-1- REAL imagery",
+             "Zenodo S-1 scene (Trujillo-Acatitla)- real SAR + inversion + AIS overlay",
+             seed=11, origin=Origin(19.03, 72.12), difficulty="real-data",
+             story=("Real Sentinel-1 GRD scene from the Zenodo oil-spill dataset "
+                    "(150 oil / 150 look-alike / 150 clean, 2048×2048 σ⁰ dB) "
+                    "run through the *same* detection→inversion→attribution chain. "
+                    "If no TIFF is cached locally it falls back to a SYNTHETIC_OVERLAY "
+                    "on the MV Rak 2011 geography (honest, not hidden) so the judge "
+                    "can still click it live. AIS is synthetic-overlay unless a "
+                    "real AccessAIS CSV is provided."),
+             tags=("real-data", "zenodo", "REAL_IMAGERY_SYNTHETIC_AIS", "mv-rak-overlay", "click-to-try")),
 ]
 
 BY_SLUG = {s.slug: s for s in SCENARIOS}

@@ -1,7 +1,7 @@
 """Current + wind vector grids sampled from the ocean model.
 
 Returned as GeoJSON LineStrings so a MapLibre `line` layer can render them
-directly — an animated GL streamline layer would look prettier but requires a
+directly- an animated GL streamline layer would look prettier but requires a
 custom shader and a lot of ceremony. The line style already conveys direction
 via a small arrowhead offset and the fill colour scales with magnitude.
 """

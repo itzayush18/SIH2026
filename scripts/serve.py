@@ -42,7 +42,7 @@ def build_app(outdir):
         """Emit an SSE event at every stage boundary, then a final `report` event
         with the URL of the written report. Runs the (blocking) pipeline in a
         worker thread and bridges its callbacks onto the event loop through a
-        Queue — asyncio.to_thread would only give one result at the end.
+        Queue- asyncio.to_thread would only give one result at the end.
         """
         q: queue.Queue = queue.Queue()
         SENTINEL = object()
@@ -78,7 +78,11 @@ def build_app(outdir):
     def health():
         return {"ok": True, "report": os.path.exists(os.path.join(outdir, "report.json"))}
 
-    app.mount("/", _Merged(outdir, os.path.join(ROOT, "web")), name="ui")
+    # Frontend is now Vite + React + Tailwind in frontend/ (see oiltrace/server.py for prod WEB)
+    _FRONTEND_DIST = os.path.join(ROOT, "frontend", "dist")
+    _FALLBACK_WEB = os.path.join(ROOT, "frontend")
+    _WEB = _FRONTEND_DIST if os.path.isdir(_FRONTEND_DIST) else _FALLBACK_WEB
+    app.mount("/", _Merged(outdir, _WEB), name="ui")
     return app
 
 
@@ -102,7 +106,7 @@ def main():
     ap.add_argument("--out", default=os.path.join(ROOT, "data", "out"))
     a = ap.parse_args()
     if not os.path.exists(os.path.join(a.out, "report.json")):
-        print("no report yet — running the pipeline once ...")
+        print("no report yet- running the pipeline once ...")
         export.build(pipeline.run(), a.out)
     import uvicorn
     print(f"\n  SAGAR-DRISHTI  ->  http://127.0.0.1:{a.port}/\n")

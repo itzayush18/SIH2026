@@ -2,7 +2,7 @@
 
 GitHub Pages is static-only, so we bake every API response the frontend uses
 into a matching JSON file under `site/`. The frontend already tries `/api/...`
-first and falls back to `./api/....json` — that fallback is what runs on Pages.
+first and falls back to `./api/....json`- that fallback is what runs on Pages.
 """
 from __future__ import annotations
 
@@ -40,9 +40,20 @@ def main():
     with httpx.Client(base_url=a.base) as c:
         r = c.get("/health"); r.raise_for_status()
 
-        # frontend
+        # frontend (Vite + React + Tailwind- white / light-grey / Outfit)
         os.makedirs(a.out, exist_ok=True)
-        shutil.copy("web/index.html", os.path.join(a.out, "index.html"))
+        _FRONTEND_INDEX = os.path.join("frontend", "dist", "index.html")
+        _FALLBACK_INDEX = os.path.join("frontend", "index.html")
+        if os.path.exists(_FRONTEND_INDEX):
+            shutil.copy(_FRONTEND_INDEX, os.path.join(a.out, "index.html"))
+            # also copy vite assets
+            _ASSETS_SRC = os.path.join("frontend", "dist", "assets")
+            if os.path.isdir(_ASSETS_SRC):
+                shutil.copytree(_ASSETS_SRC, os.path.join(a.out, "assets"), dirs_exist_ok=True)
+        elif os.path.exists(_FALLBACK_INDEX):
+            shutil.copy(_FALLBACK_INDEX, os.path.join(a.out, "index.html"))
+        else:
+            raise FileNotFoundError("frontend/dist/index.html not found- run `npm run build` in frontend/ first")
 
         # top-level snapshots
         snap(c, "/api/system/status",    f"{a.out}/api/system/status.json")
@@ -90,7 +101,7 @@ def main():
     # A marker file the frontend probes to detect static mode.
     with open(f"{a.out}/api/STATIC.json", "w") as f:
         json.dump({"mode": "STATIC_SNAPSHOT",
-                   "note": "Live pipeline runs disabled — this is a snapshot of a "
+                   "note": "Live pipeline runs disabled- this is a snapshot of a "
                            "server run. Clone the repo and `python -m oiltrace.server` "
                            "to try new scenarios interactively."}, f)
 

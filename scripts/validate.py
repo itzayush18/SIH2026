@@ -1,7 +1,7 @@
 """Batch validation over independent scenarios.
 
-Each seed regenerates everything — metocean fields, slick geometry, discharge
-timing, look-alike population and traffic picture — so the numbers below are a
+Each seed regenerates everything- metocean fields, slick geometry, discharge
+timing, look-alike population and traffic picture- so the numbers below are a
 fair repeated measurement rather than one lucky scene.
 
     python scripts/validate.py --seeds 10

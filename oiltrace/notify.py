@@ -1,7 +1,7 @@
-"""Notification dispatch — Slack webhook (implemented) + SMTP email (stub).
+"""Notification dispatch- Slack webhook (implemented) + SMTP email (stub).
 
 Both are opt-in via environment variables. If a channel is not configured, the
-dispatcher records a `queued` event but does not attempt to send — never fail
+dispatcher records a `queued` event but does not attempt to send- never fail
 loudly for missing optional credentials.
 """
 from __future__ import annotations
@@ -63,7 +63,7 @@ def dispatch(alert, incident_summary):
 
 
 def dispatch_critical(rep):
-    """Send only CRITICAL/HIGH alerts — the interesting subset by default."""
+    """Send only CRITICAL/HIGH alerts- the interesting subset by default."""
     from . import incidents as _inc
     summ = _inc.summary(rep)
     results = []

@@ -1,5 +1,5 @@
 version: "3.9"
-# OILTRACE — free-data prototype. One container, laptop-friendly. Postgres/Redis
+# OILTRACE- free-data prototype. One container, laptop-friendly. Postgres/Redis
 # are commented out below; add them when you switch adapters from SIMULATION
 # to ONLINE and start persisting incidents across restarts.
 services:

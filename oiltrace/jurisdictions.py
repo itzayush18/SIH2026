@@ -4,7 +4,7 @@ For an offline demo we ship simplified boundary polygons. The lookup contract
 matches what a Marine Regions WFS query would return, so `providers.py` can
 switch to the live service without touching downstream code.
 
-MARPOL Annex I discharge limits vary by area — the Special Areas (Mediterranean,
+MARPOL Annex I discharge limits vary by area- the Special Areas (Mediterranean,
 Baltic, Black Sea, Red Sea, "Gulfs area", Antarctic, North West European Waters,
 Oman Area of the Arabian Sea) enforce a stricter regime, and the Arabian Sea
 demo scenario sits inside the Oman Area.
@@ -43,7 +43,7 @@ def _point_in_ring(lon, lat, ring):
 
 def _load():
     """Load the shipped GeoJSON. If it is missing (fresh clone), fall back to
-    coarse rectangles so the API contract still holds — coverage over the
+    coarse rectangles so the API contract still holds- coverage over the
     Arabian Sea / Bay of Bengal / Laccadive is all we need for the demo."""
     if os.path.exists(_JUR):
         with open(_JUR) as f:
@@ -75,7 +75,7 @@ def classify(lat: float, lon: float) -> Jurisdiction:
 
 
 def nearest_coast_km(lat: float, lon: float) -> float:
-    """Very rough — great-circle distance to the nearest of a handful of
+    """Very rough- great-circle distance to the nearest of a handful of
     hard-coded Indian coastal reference points. Enough for a demo tile."""
     R = 6371.0
     coast = [(19.08, 72.88, "Mumbai"), (15.30, 74.12, "Karwar"),
@@ -118,7 +118,7 @@ _FALLBACK = {"type": "FeatureCollection", "features": [
          [77.0, 8.0], [72.5, 15.0], [68.0, 22.5], [66.5, 22.5], [66.5, 15.0],
          [68.0, 8.0]]]}},
     {"type": "Feature",
-     "properties": {"name": "MARPOL Special Area — Oman Area of the Arabian Sea",
+     "properties": {"name": "MARPOL Special Area- Oman Area of the Arabian Sea",
                     "kind": "SPECIAL_AREA", "sovereign": "IMO",
                     "marpol_regime": "special_area",
                     "source": "MARPOL Annex I Reg. 1.11.5"},

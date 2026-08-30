@@ -2,12 +2,12 @@
 
 Three stages, mirroring the operational literature (Solberg et al.; Topouzelis):
 
-  1. **Preprocess** — refined-Lee speckle filter, then remove the range-dependent
+  1. **Preprocess**- refined-Lee speckle filter, then remove the range-dependent
      incidence-angle trend so a single threshold is valid across the swath.
-  2. **Segment** — adaptive local thresholding at several window scales, union of
+  2. **Segment**- adaptive local thresholding at several window scales, union of
      scales, morphological cleanup, connected components. Deliberately
      over-detects: recall here is cheap, precision is stage 3's job.
-  3. **Classify** — per-region feature vector -> logistic model -> P(oil).
+  3. **Classify**- per-region feature vector -> logistic model -> P(oil).
      The features are the classical discriminators: contrast, edge sharpness,
      shape complexity, homogeneity and local wind. A look-alike (low-wind cell,
      biogenic film) is dark but *soft-edged, low-contrast and blobby*; mineral
@@ -178,7 +178,7 @@ def _region_features(db, mask, pixel_m):
 
 
 def _contour_lonlat(scene, mask, max_pts=180):
-    """Border pixels ordered by angle about the centroid — good enough for a
+    """Border pixels ordered by angle about the centroid- good enough for a
     map overlay and far cheaper than a full marching-squares trace."""
     border = ndimage.binary_dilation(mask, np.ones((3, 3))) & ~mask
     rr, cc = np.nonzero(border)

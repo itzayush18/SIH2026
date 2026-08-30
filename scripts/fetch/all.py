@@ -1,4 +1,4 @@
-"""Orchestrator — fetches every real source whose credentials are configured.
+"""Orchestrator- fetches every real source whose credentials are configured.
 
 Silently skips channels without credentials. Prints a clear plan first.
 

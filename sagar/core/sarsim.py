@@ -9,7 +9,7 @@ detector actually keys on:
   * wind-driven Bragg background via a CMOD-like speed->NRCS relation,
   * multiplicative speckle with a configurable number of looks,
   * oil slicks as damping-ratio patches (dark, sharp-edged, elongated),
-  * *look-alikes* — low-wind cells and biogenic films that are dark but
+  * *look-alikes*- low-wind cells and biogenic films that are dark but
     smooth-edged and low-contrast; these are what a naive threshold gets wrong,
   * bright point targets for vessels.
 """
@@ -91,7 +91,7 @@ def _gauss_blob(n, rng, cx, cy, rad, aniso=1.0, rot=0.0):
 
 
 def _fractal_field(n, rng, beta=2.4):
-    """1/f^beta noise — used to give slicks and wind cells organic texture."""
+    """1/f^beta noise- used to give slicks and wind cells organic texture."""
     f = np.fft.fftfreq(n)
     fx, fy = np.meshgrid(f, f)
     r = np.sqrt(fx ** 2 + fy ** 2)
@@ -140,7 +140,7 @@ def simulate(spec: SceneSpec, ocean, slick_polys, vessels_px=(), n_lookalikes=3)
     sigma_lin = cmod_like_nrcs(wspd, inc, wdir)
 
     # --- look-alike 2: biogenic films. These *do* damp Bragg waves, but weakly
-    #     and with diffuse edges — the single hardest negative class in the
+    #     and with diffuse edges- the single hardest negative class in the
     #     literature, and the reason a bare threshold is not enough.
     bio = np.zeros((n, n), dtype=bool)
     for _ in range(max(1, n_lookalikes - 1)):
@@ -157,7 +157,7 @@ def simulate(spec: SceneSpec, ocean, slick_polys, vessels_px=(), n_lookalikes=3)
     for poly in slick_polys:
         truth |= poly
     if truth.any():
-        # Thicker in the core, feathered at the edges — mimics emulsion gradient.
+        # Thicker in the core, feathered at the edges- mimics emulsion gradient.
         d = ndimage.distance_transform_edt(truth)
         core = np.clip(d / max(3.0, 0.06 * d.max()), 0, 1)
         texture = 0.12 * _fractal_field(n, rng, beta=2.0)
@@ -170,7 +170,7 @@ def simulate(spec: SceneSpec, ocean, slick_polys, vessels_px=(), n_lookalikes=3)
         if 2 <= r < n - 2 and 2 <= c < n - 2:
             sigma_lin[r - 1:r + 2, c - 1:c + 2] += boost * sigma_lin.mean() * 40.0
 
-    # --- speckle: multiplicative Gamma(L, 1/L) — the defining SAR nuisance
+    # --- speckle: multiplicative Gamma(L, 1/L)- the defining SAR nuisance
     L = spec.looks
     speckle = rng.gamma(shape=L, scale=1.0 / L, size=(n, n))
     obs = sigma_lin * speckle

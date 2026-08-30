@@ -2,7 +2,7 @@
 handful of PNG overlays that Leaflet can drape on the map.
 
 Rasters go out as PNGs with explicit lat/lon bounds rather than as GeoJSON
-polygons — a 1024x1024 density field is far cheaper to ship as an image, and
+polygons- a 1024x1024 density field is far cheaper to ship as an image, and
 the browser gets smooth interpolation for free.
 """
 from __future__ import annotations
@@ -82,7 +82,7 @@ def _cloud_snapshots(res, hours, every_h=1.0, max_pts=320):
 
 
 def _clean(o):
-    """NaN/Infinity are valid Python floats but not valid JSON — the browser's
+    """NaN/Infinity are valid Python floats but not valid JSON- the browser's
     JSON.parse rejects them outright. Map them to null on the way out."""
     if isinstance(o, dict):
         return {k: _clean(v) for k, v in o.items()}

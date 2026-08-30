@@ -1,6 +1,6 @@
 """Query CDSE STAC for a Sentinel-1 GRD scene and download the VV/VH band.
 
-Needs CDSE_USER and CDSE_PASSWORD in the environment. Free — register at
+Needs CDSE_USER and CDSE_PASSWORD in the environment. Free- register at
 https://dataspace.copernicus.eu.
 
     python scripts/fetch/sentinel1.py \
@@ -30,7 +30,7 @@ TOKEN_URL = ("https://identity.dataspace.copernicus.eu/auth/realms/CDSE/"
 def token():
     user, pw = os.environ.get("CDSE_USER"), os.environ.get("CDSE_PASSWORD")
     if not (user and pw):
-        sys.exit("CDSE_USER / CDSE_PASSWORD not set — see .env.example")
+        sys.exit("CDSE_USER / CDSE_PASSWORD not set- see .env.example")
     body = urllib.parse.urlencode({
         "client_id": "cdse-public",
         "grant_type": "password",

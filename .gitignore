@@ -12,3 +12,12 @@ site/
 .context/
 .DS_Store
 *.egg-info/
+
+# Frontend- Vite + React + Tailwind
+frontend/node_modules/
+# frontend/dist is intentionally committed (production build served at /)
+# Run `npm run build` in frontend/ to refresh after changes
+C:/Temp/
+# legacy web/ removed- frontend/ is now the single source (2026-08-30)
+
+venv/

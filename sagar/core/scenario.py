@@ -6,7 +6,7 @@ along a course discharging for a period, and every released parcel is advected
 forward by the ocean model to the acquisition time. The resulting shape is what
 the SAR simulator darkens.
 
-That matters for evaluation — it means "did we recover the origin?" is a fair
+That matters for evaluation- it means "did we recover the origin?" is a fair
 question with a known answer, instead of being baked in.
 """
 from __future__ import annotations

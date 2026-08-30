@@ -4,12 +4,12 @@ Three independent age estimators are computed and fused, because each fails in
 a different regime and the disagreement between them is itself the honest
 uncertainty estimate:
 
-  * **Advective age** — an elongated slick is a trail. Its downstream extent
+  * **Advective age**- an elongated slick is a trail. Its downstream extent
     divided by the local drift speed is the time since the head was laid down.
     Best for fresh, ship-track-shaped discharges (exactly the SIH case).
-  * **Fay spreading age** — inverts the gravity-viscous spreading law for the
+  * **Fay spreading age**- inverts the gravity-viscous spreading law for the
     observed area given an estimated volume. Best for instantaneous releases.
-  * **Weathering age** — a sheen that has thinned to the point of losing SAR
+  * **Weathering age**- a sheen that has thinned to the point of losing SAR
     contrast is old; damping ratio decays quasi-exponentially with evaporation
     and dispersion.
 """

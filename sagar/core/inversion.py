@@ -2,7 +2,7 @@
 
 A pure backward particle cloud cannot localise this kind of spill, and it is
 worth being explicit about why. An operational discharge from a vessel underway
-is not a point release — it is a line laid down over tens of minutes to hours.
+is not a point release- it is a line laid down over tens of minutes to hours.
 Run the cloud backwards and it never collapses to a point, because the slick's
 along-track extent was there from the start. Empirically the backward spread of
 our reference scenario contracts by under 2% over 26 h; the "minimum-area
@@ -15,8 +15,8 @@ release by a vessel steaming at constant course and speed:
 
 forward-advect that line source through the same metocean fields to the
 acquisition time, rasterise it, and score it against the observed slick by IoU.
-Optimising theta gives a sharp, physically constrained answer *and* — the part
-that matters for attribution — a candidate **source track**, which can be
+Optimising theta gives a sharp, physically constrained answer *and*- the part
+that matters for attribution- a candidate **source track**, which can be
 matched directly against AIS tracks rather than only against a probability blob.
 
 Search is a coarse random scan followed by a shrinking-neighbourhood refine
@@ -101,7 +101,7 @@ def invert(scene, ocean, mask, n_coarse=180, n_refine=120, seed=3,
            t_window_h=(2.0, 26.0), verbose=False, keep_frac=0.85, keep_max=40):
     """Return the best-fitting SourceHypothesis for the observed slick.
 
-    The returned object also carries `.ensemble` — every hypothesis whose fit
+    The returned object also carries `.ensemble`- every hypothesis whose fit
     came within `keep_frac` of the best. This matters: the forward map is not
     fully identifiable. A later release by a faster source can reproduce a very
     similar footprint, so a longer search buys a higher IoU without buying a
@@ -217,7 +217,7 @@ def source_track_match(vessel, hyp: SourceHypothesis, origin: Origin, n=25):
     """How well does an AIS track coincide with the inverted source?
 
     Returns (score in 0..1, mean separation in km). Sampled at the hypothesised
-    release *times*, so it tests space and time simultaneously — a vessel that
+    release *times*, so it tests space and time simultaneously- a vessel that
     sailed the same line six hours later scores zero.
 
     Scored against the whole retained ensemble, IoU-weighted, so a single

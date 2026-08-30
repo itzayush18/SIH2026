@@ -1,4 +1,4 @@
-"""OILTRACE backend — spec §32, §45.
+"""OILTRACE backend- spec §32, §45.
 
 Modular monolith on FastAPI. One process, clean service boundaries, endpoints
 that match the spec verbatim so a downstream React/TS frontend could pull them
@@ -30,7 +30,17 @@ from oiltrace import notify as _notify, pdf as _pdf, vectors as _vec
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "data", "out")
-WEB = os.path.join(ROOT, "web")
+# Vite + React + Tailwind frontend (white / light-grey / Outfit)
+# Production build: frontend/dist  |  Dev: `npm run dev` in frontend/ proxied to :8000
+_FRONTEND_DIST = os.path.join(ROOT, "frontend", "dist")
+_FRONTEND_SRC = os.path.join(ROOT, "frontend")
+if os.path.isdir(_FRONTEND_DIST):
+    WEB = _FRONTEND_DIST
+elif os.path.isdir(_FRONTEND_SRC):
+    # fallback for local dev without a build (serve source index.html via vite proxy- FastAPI just needs a folder)
+    WEB = _FRONTEND_SRC
+else:
+    WEB = _FRONTEND_DIST  # will error visibly if neither exists- run `npm run build` in frontend/
 
 
 class Store:
@@ -51,10 +61,46 @@ class Store:
 STORE = Store()
 
 
-def _sim_banner(payload):
-    """Wrap every response in a mode header — spec §56."""
+def _sim_banner(payload, mode=None):
+    """Wrap every response in a mode header- spec §56 and honest per-incident labelling.
+
+    Every API response keeps a `_meta.data_mode` field. Never let a screen or export
+    imply a probability/certainty where none is calibrated (NFR-10). The value is
+    now per-incident where applicable:
+      SIMULATION | SYNTHETIC_OVERLAY | REAL_IMAGERY_SYNTHETIC_AIS | REAL_IMAGERY_REAL_AIS
+
+    If the payload already carries an oiltrace/report incident mode we honour it
+    rather than collapsing everything to SIMULATION.
+    """
     if isinstance(payload, dict):
-        payload["_meta"] = dict(data_mode="SIMULATION",
+        inferred = mode
+        # Try to infer from payload structure
+        if inferred is None:
+            # Check common nests
+            if "data_mode" in payload:
+                inferred = payload["data_mode"]
+            elif "oiltrace" in payload and isinstance(payload["oiltrace"], dict):
+                inferred = payload["oiltrace"].get("data_mode")
+            elif "report" in payload and isinstance(payload["report"], dict):
+                ro = payload["report"].get("oiltrace", {}) if isinstance(payload["report"].get("oiltrace"), dict) else {}
+                inferred = ro.get("data_mode") or payload["report"].get("data_mode")
+            elif "incident" in payload and isinstance(payload["incident"], dict):
+                inferred = payload["incident"].get("data_mode")
+            elif "incidents" in payload and isinstance(payload["incidents"], list):
+                modes = {i.get("data_mode") for i in payload["incidents"] if isinstance(i, dict) and i.get("data_mode")}
+                if len(modes) == 1:
+                    inferred = next(iter(modes))
+                elif len(modes) > 1:
+                    inferred = "MIXED"
+        if inferred is None:
+            inferred = "SIMULATION"
+        # Canonicalise via providers (handles legacy MIXED etc.)
+        try:
+            from oiltrace.providers import canonical_mode as _canon
+            inferred = _canon(inferred)
+        except Exception:
+            pass
+        payload["_meta"] = dict(data_mode=inferred,
                                 generated_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",
                                                            time.gmtime()))
     return payload
@@ -62,7 +108,7 @@ def _sim_banner(payload):
 
 def build_app():
     app = FastAPI(title="OILTRACE", version="0.4.0",
-                  description="Oil Spill Intelligence & Vessel Attribution Command Center — "
+                  description="Oil Spill Intelligence & Vessel Attribution Command Center- "
                               "SIH26143 · NTRO. This deployment is a SIMULATION.")
 
     # ---- system status ----------------------------------------------------
@@ -89,20 +135,23 @@ def build_app():
     def get_incident(iid: str):
         r = STORE.get(iid)
         if not r: raise HTTPException(404, "unknown incident")
-        return _sim_banner(dict(incident=_inc.summary(r), report=r))
+        return _sim_banner(dict(incident=_inc.summary(r), report=r),
+                           mode=r.get("oiltrace", {}).get("data_mode") or r.get("data_mode"))
 
     @app.get("/api/incidents/{iid}/candidates")
     def get_candidates(iid: str):
         r = STORE.get(iid)
         if not r: raise HTTPException(404, "unknown incident")
-        return _sim_banner(dict(candidates=r["suspects"]))
+        return _sim_banner(dict(candidates=r["suspects"]),
+                           mode=r.get("oiltrace", {}).get("data_mode"))
 
     @app.get("/api/incidents/{iid}/evidence")
     def get_evidence(iid: str):
         r = STORE.get(iid)
         if not r: raise HTTPException(404, "unknown incident")
         return _sim_banner(dict(evidence=r["oiltrace"]["evidence_pack"],
-                                provenance=r["oiltrace"]["provenance"]))
+                                provenance=r["oiltrace"]["provenance"]),
+                           mode=r.get("oiltrace", {}).get("data_mode"))
 
     @app.get("/api/incidents/{iid}/evidence/download")
     def download_evidence(iid: str):
@@ -116,13 +165,15 @@ def build_app():
     def get_alerts(iid: str):
         r = STORE.get(iid)
         if not r: raise HTTPException(404, "unknown incident")
-        return _sim_banner(dict(alerts=r["oiltrace"]["alerts"]))
+        return _sim_banner(dict(alerts=r["oiltrace"]["alerts"]),
+                           mode=r.get("oiltrace", {}).get("data_mode"))
 
     @app.get("/api/incidents/{iid}/patrol")
     def get_patrol(iid: str):
         r = STORE.get(iid)
         if not r: raise HTTPException(404, "unknown incident")
-        return _sim_banner(dict(patrol=r["oiltrace"]["patrol"]))
+        return _sim_banner(dict(patrol=r["oiltrace"]["patrol"]),
+                           mode=r.get("oiltrace", {}).get("data_mode"))
 
     # ---- vessels ----------------------------------------------------------
     @app.get("/api/vessels/{mmsi}")
@@ -268,7 +319,34 @@ def build_app():
     def notify(iid: str):
         r = STORE.get(iid)
         if not r: raise HTTPException(404, "unknown incident")
-        return _sim_banner(dict(dispatched=_notify.dispatch_critical(r)))
+        return _sim_banner(dict(dispatched=_notify.dispatch_critical(r)),
+                           mode=r.get("oiltrace", {}).get("data_mode"))
+
+    # ---- MV Rak validation vignette (§4.4) ---------------------------------
+    @app.get("/api/validation/mv-rak")
+    def mv_rak():
+        try:
+            from sagar.data.mv_rak import vignette_result as _vr
+            return _sim_banner(dict(vignette=_vr()), mode="SYNTHETIC_OVERLAY")
+        except Exception as e:
+            raise HTTPException(500, f"mv-rak vignette failed: {e}")
+
+    # ---- dark vessels for an incident (§4.2) --------------------------------
+    @app.get("/api/incidents/{iid}/dark-vessels")
+    def dark_vessels(iid: str):
+        r = STORE.get(iid)
+        if not r: raise HTTPException(404, "unknown incident")
+        return _sim_banner(dict(dark_vessels=r.get("dark_vessels", [])),
+                           mode=r.get("oiltrace", {}).get("data_mode"))
+
+    # ---- INCOIS live probe (§4.5) -------------------------------------------
+    @app.get("/api/live/incois")
+    def incois_probe():
+        try:
+            from oiltrace.incois import probe as _probe
+            return _sim_banner(dict(incois=_probe()))
+        except Exception as e:
+            return _sim_banner(dict(incois=dict(status="OFFLINE", error=str(e))))
 
     # ---- incident timeline (chronological event log) ----------------------
     @app.get("/api/incidents/{iid}/timeline")
@@ -292,14 +370,15 @@ def build_app():
                                    label=f"{v['name']} AIS resumes",
                                    subject=v["mmsi"]))
         events.append(dict(t_rel_h=0.0, kind="acquisition",
-                           label=f"SAR acquisition — {r['detections'][0]['area_km2']:.0f} km² dark feature"))
+                           label=f"SAR acquisition- {r['detections'][0]['area_km2']:.0f} km² dark feature"))
         events.append(dict(t_rel_h=0.0, kind="classified",
                            label=f"Classifier: P(oil)={r['detections'][0]['p_oil']:.3f}"))
         events.append(dict(t_rel_h=0.1, kind="attributed",
-                           label=(r["suspects"][0]["name"] + f" — score {r['suspects'][0]['score']:.2f}"
+                           label=(r["suspects"][0]["name"] + f"- score {r['suspects'][0]['score']:.2f}"
                                   if r["suspects"] else "no candidates")))
         events.sort(key=lambda e: e["t_rel_h"])
-        return _sim_banner(dict(events=events))
+        return _sim_banner(dict(events=events),
+                           mode=r.get("oiltrace", {}).get("data_mode"))
 
     # ---- health / readiness ----------------------------------------------
     @app.get("/health")
@@ -319,7 +398,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--no-warm", action="store_true",
-                    help="Skip pre-warming — server starts with no incidents")
+                    help="Skip pre-warming- server starts with no incidents")
     a = ap.parse_args()
 
     os.makedirs(OUT, exist_ok=True)

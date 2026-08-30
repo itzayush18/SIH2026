@@ -91,7 +91,7 @@ def main():
     X, y = corpus(a.scenes, size=a.size)
     print(f"{len(y)} candidate regions, {int(y.sum())} oil / {int(len(y)-y.sum())} look-alike")
     if y.sum() < 3 or len(y) - y.sum() < 3:
-        sys.exit("not enough of both classes — increase --scenes")
+        sys.exit("not enough of both classes- increase --scenes")
 
     rng = np.random.default_rng(0)
     idx = rng.permutation(len(y))

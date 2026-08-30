@@ -14,7 +14,7 @@ from typing import Optional
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _PATH = os.path.join(_HERE, "data", "coast.geojson")
 
-# Simplified Indian coast (west, south, east) — ~40 vertices, good to ~15 km.
+# Simplified Indian coast (west, south, east)- ~40 vertices, good to ~15 km.
 _SIMPLE = {
     "type": "FeatureCollection", "features": [{
         "type": "Feature", "properties": {"name": "Indian coast (simplified)"},

@@ -6,18 +6,18 @@ actually sail through, and did it behave like a ship that was discharging?*
 
 Score = sigmoid( sum_i w_i * z_i ), over five evidence axes:
 
-  0. **Source-track match** — the strongest term. `inversion.py` recovers the
+  0. **Source-track match**- the strongest term. `inversion.py` recovers the
      hypothesised release as a moving line source; this measures how closely an
      AIS track shadows that line *at the hypothesised release times*. A vessel
      that sailed the same water six hours later scores ~0.
-  1. **Spatio-temporal coincidence** — the vessel track integrated against the
+  1. **Spatio-temporal coincidence**- the vessel track integrated against the
      backward origin PDF. Coarser than term 0 but robust when the inversion
      fits poorly (weak drift, ambiguous slick shape).
-  2. **Track/slick axis alignment** — an operational discharge is laid along the
+  2. **Track/slick axis alignment**- an operational discharge is laid along the
      ship's course, so the slick's major axis should match the vessel's COG.
-  3. **Behavioural anomaly** — speed reduction, course alteration, loitering.
+  3. **Behavioural anomaly**- speed reduction, course alteration, loitering.
   4. **AIS dark period** overlapping the release window.
-  5. **Vessel prior** — type, size and draft. Weakest term by design; it must
+  5. **Vessel prior**- type, size and draft. Weakest term by design; it must
      never be able to convict on its own.
 
 Every term is reported with a human-readable reason so an analyst can audit the
@@ -116,7 +116,7 @@ def _dark_term(vessel, t_lo, t_hi):
         return 0.0, []
     frac = min(overlap / win, 1.0)
     return frac, [f"AIS silent for {overlap/60:.0f} min "
-                  f"({frac*100:.0f}% of the release window) — transponder gap"]
+                  f"({frac*100:.0f}% of the release window)- transponder gap"]
 
 
 def _alignment_term(hits, slick_orientation_deg):
@@ -131,9 +131,67 @@ def _alignment_term(hits, slick_orientation_deg):
     val = max(0.0, min(a / wsum, 1.0))
     if val > 0.6:
         return val, [f"course lies within {angdiff(hits[0][4] % 180, slick_orientation_deg % 180):.0f} deg "
-                     f"of the slick's major axis ({slick_orientation_deg:.0f} deg) — "
+                     f"of the slick's major axis ({slick_orientation_deg:.0f} deg)- "
                      f"consistent with a slick laid along track"]
     return val, []
+
+
+def _score_dark_candidate(vessel, hyp, pdf, origin, detection):
+    """Single-point dark vessel scored on the same additive log-odds scale (§4.2).
+
+    Track-continuity and AIS dark-period axes are undefined for a vessel that was
+    never observed by AIS- they contribute 0 and are reported as ND so an analyst
+    sees why, but the vessel is still ranked on the same 0..1 evidence index.
+    """
+    import math as _m
+    import numpy as np
+    # Guard: vessel is a single-point dark stub
+    pos = vessel.position_at(0.0) if hasattr(vessel, "position_at") else None
+    if pos is None:
+        return None
+    lat, lon, _, _, _ = pos
+    x, y = origin.to_xy(lat, lon)
+    # Source proximity (geometric proxy, same 5 km half-width as inversion)
+    if hyp is not None:
+        ts, xs, ys = hyp.track_xy(n=25)
+        md = min(math.hypot(x - xi, y - yi) for xi, yi in zip(xs, ys)) / 1000.0
+        sm = math.exp(-(md * 1000.0 / 5000.0) ** 2) * 0.85
+        sep = md
+    else:
+        sm, sep = 0.0, float("nan")
+    dens = 0.0
+    try:
+        from .drift import pdf_lookup as _pl
+        dens = _pl(pdf, 0.0, x, y)
+        maxd = float(np.max(pdf["density"])) if pdf["density"].size else 1.0
+        st = min(1.0, dens / max(maxd * 0.15, 1e-9))
+    except Exception:
+        st = 0.0
+    align = 0.0  # no COG
+    beh = 0.0    # no track history
+    dark = 0.0   # not derivable- honestly 0, not fabricated
+    prior = 0.35
+    z = (BIAS + WEIGHTS["source_match"] * sm + WEIGHTS["spatiotemporal"] * st
+         + WEIGHTS["alignment"] * align + WEIGHTS["behaviour"] * beh
+         + WEIGHTS["dark"] * dark + WEIGHTS["prior"] * prior)
+    score = 1.0 / (1.0 + math.exp(-max(-40.0, min(40.0, z))))
+    ev = []
+    if sm > 0.2:
+        ev.append(f"SAR-dark detection {sep:.1f} km from the inverted source track "
+                  f"(match {sm*100:.0f}% on same scale)")
+    if st > 0.12:
+        ev.append(f"falls inside the reconstructed origin envelope at acquisition "
+                  f"(coincidence {st*100:.0f}%)")
+    ev.append("SAR bright-target detection with no AIS transmission at acquisition- dark-vessel candidate; "
+              "AIS continuity / dark-period axes are ND (0-weighted) for single-position SAR detections")
+    return Suspect(mmsi=vessel.mmsi, name=vessel.name, type_name="Unknown (SAR-only)",
+                   length=getattr(vessel, "length", 80.0),
+                   score=score, terms=dict(source_match=sm, spatiotemporal=st,
+                                           alignment=align, behaviour=beh,
+                                           dark=dark, prior=prior, is_dark=1.0),
+                   evidence=ev, closest_approach_km=sep,
+                   closest_approach_t=0.0, source_separation_km=sep,
+                   track=getattr(vessel, "track_geojson", lambda: [])() or [[lon, lat, 0.0]])
 
 
 def rank(vessels: Dict[str, object], pdf, detection, origin, min_prob_frac=1e-4,
@@ -146,6 +204,26 @@ def rank(vessels: Dict[str, object], pdf, detection, origin, min_prob_frac=1e-4,
     # still evaluated rather than silently dropped.
     t_lo -= pdf["time_bin_s"]; t_hi += pdf["time_bin_s"]
 
+    # --- Dark-vessel short-circuit: vessels that are SAR-only detections ----
+    # These have no track history; score them on the same logistic with
+    # track-continuity / AIS-dark axes zero-weighted, so we do not invent a
+    # separate "SAR-only" scale (§4.2). They bypass the _sample_track filter.
+    dark_suspects: List[Suspect] = []
+    normal_vessels = {}
+    for k, v in vessels.items():
+        is_dark = (str(k).startswith("DARK") or getattr(v, "is_dark", False)
+                   or (len(getattr(v, "pings", [])) == 1 and str(getattr(v, "mmsi", "")).startswith("DARK")))
+        if is_dark:
+            try:
+                s = _score_dark_candidate(v, source_hyp, pdf, origin, detection)
+                if s:
+                    dark_suspects.append(s)
+            except Exception:
+                continue
+        else:
+            normal_vessels[k] = v
+    vessels = normal_vessels
+
     raw = []
     for v in vessels.values():
         hits = _sample_track(v, pdf, origin, t_lo, t_hi)
@@ -153,8 +231,11 @@ def rank(vessels: Dict[str, object], pdf, detection, origin, min_prob_frac=1e-4,
             continue
         st = sum(h[5] for h in hits)
         raw.append((v, hits, st))
-    if not raw:
+    if not raw and not dark_suspects:
         return []
+    if not raw and dark_suspects:
+        dark_suspects.sort(key=lambda s: -s.score)
+        return dark_suspects[:top_n]
 
     # --- Stage 1: filter irrelevant traffic. A vessel whose track never
     # intersects the origin envelope, and which does not shadow the inverted
@@ -188,7 +269,7 @@ def rank(vessels: Dict[str, object], pdf, detection, origin, min_prob_frac=1e-4,
 
         ev = []
         if sm > 0.2:
-            ev.append(f"shadows the inverted source track — mean separation "
+            ev.append(f"shadows the inverted source track- mean separation "
                       f"{sep:.1f} km at the hypothesised release times "
                       f"(match {sm*100:.0f}%)")
         if st_n > 0.15:
@@ -196,7 +277,7 @@ def rank(vessels: Dict[str, object], pdf, detection, origin, min_prob_frac=1e-4,
                       f"(coincidence {st_n*100:.0f}% of the best-scoring vessel)")
         ev += r_align + r_beh + r_dark
         if prior > 0.7:
-            ev.append(f"{v.type_name.lower()}, {v.length:.0f} m — carries the cargo/bunkers "
+            ev.append(f"{v.type_name.lower()}, {v.length:.0f} m- carries the cargo/bunkers "
                       f"consistent with the observed slick volume")
         if not ev:
             ev.append("present in the search window but no corroborating evidence")
@@ -210,7 +291,12 @@ def rank(vessels: Dict[str, object], pdf, detection, origin, min_prob_frac=1e-4,
             evidence=ev, closest_approach_km=d_km, closest_approach_t=best[0],
             track=v.track_geojson()))
 
+    # Merge dark SAR-only candidates back in on the *same* scale
+    if dark_suspects:
+        suspects.extend(dark_suspects)
     suspects.sort(key=lambda s: -s.score)
+    # If no one reached an investigable threshold, the list may be empty- that's
+    # an honest "insufficient evidence" terminal state, not an error to engineer away.
     return suspects[:top_n]
 
 

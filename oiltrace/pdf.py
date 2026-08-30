@@ -74,17 +74,17 @@ def render(rep, incident_dir):
     # ---- cover -----------------------------------------------------------
     story.append(Paragraph("OILTRACE · Investigation Package", ss["Muted"]))
     story.append(Paragraph(iid, ss["Big"]))
-    story.append(Paragraph(f"<b>{o['scenario']['name']}</b> — {o['scenario']['subtitle']}",
+    story.append(Paragraph(f"<b>{o['scenario']['name']}</b>- {o['scenario']['subtitle']}",
                            ss["Body"]))
     story.append(Spacer(1, 4))
-    story.append(Paragraph("<b>SIMULATION</b> — decision-support intelligence. "
+    story.append(Paragraph("<b>SIMULATION</b>- decision-support intelligence. "
                            "Not legal evidence.", ss["Muted"]))
     story.append(Spacer(1, 14))
 
     story.append(Paragraph("Headline finding", ss["H"]))
     lead = rep["suspects"][0] if rep["suspects"] else None
     lead_line = (f"Prime attribution candidate: <b>{lead['name']}</b> "
-                 f"(MMSI {lead['mmsi']}) — score <b>{lead['score']:.2f}</b>."
+                 f"(MMSI {lead['mmsi']})- score <b>{lead['score']:.2f}</b>."
                  if lead else "No attribution candidate could be scored.")
     story.append(Paragraph(lead_line, ss["Body"]))
     story.append(Spacer(1, 8))
@@ -138,7 +138,7 @@ def render(rep, incident_dir):
     ]))
     story.append(Spacer(1, 10))
 
-    story.append(Paragraph("Attribution — ranked candidates", ss["H"]))
+    story.append(Paragraph("Attribution- ranked candidates", ss["H"]))
     hdr = ["Rank", "Vessel", "MMSI", "Type", "Score", "Top evidence"]
     rows = [hdr]
     for i, s in enumerate(rep["suspects"][:6]):
@@ -165,7 +165,7 @@ def render(rep, incident_dir):
         clr = CRITICAL if a["severity"] == "CRITICAL" else INK
         story.append(Paragraph(
             f'<font color="{clr.hexval()}"><b>{a["severity"]}</b></font> · '
-            f'<b>{a["kind"]}</b> — {a["title"]}<br/>'
+            f'<b>{a["kind"]}</b>- {a["title"]}<br/>'
             f'<font size=8 color="{MUTED.hexval()}">{a["message"]}</font>',
             ss["Body"]))
         story.append(Spacer(1, 4))
@@ -174,7 +174,7 @@ def render(rep, incident_dir):
     story.append(Paragraph("Patrol tasking", ss["H"]))
     for pt in o["patrol"]:
         story.append(Paragraph(
-            f'<b>{pt["priority"]} · {pt["action"]}</b> — {pt["target"]}<br/>'
+            f'<b>{pt["priority"]} · {pt["action"]}</b>- {pt["target"]}<br/>'
             f'<font size=8 color="{MUTED.hexval()}">Asset: {pt["asset_class"]} · '
             f'{pt["lat"]:.3f}, {pt["lon"]:.3f} · r={pt["radius_km"]:.0f} km · '
             f'{pt["eta_hint"]}</font><br/>'
@@ -191,7 +191,7 @@ def render(rep, incident_dir):
     story.append(Paragraph(
         "This document is decision-support intelligence. It does not establish "
         "an offence under MARPOL or any national law. Enforcement action "
-        "requires corroboration — oil fingerprinting, port state inspection, "
+        "requires corroboration- oil fingerprinting, port state inspection, "
         "chain of custody.", ss["Muted"]))
 
     doc.build(story)

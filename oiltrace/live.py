@@ -3,7 +3,7 @@
 Takes a Sentinel-1 GeoTIFF (and optionally CMEMS + ERA5 NetCDFs) and runs the
 production pipeline on it, producing the same OILTRACE incident record the
 simulator produces. If real files are missing, the caller should fall back to
-`incidents.run(scenario)` — this module never fabricates.
+`incidents.run(scenario)`- this module never fabricates.
 """
 from __future__ import annotations
 

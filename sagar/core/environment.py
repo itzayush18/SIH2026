@@ -86,6 +86,6 @@ class SyntheticOcean:
         return Forcing(float(u), float(v), float(uw), float(vw))
 
     def wind_field_xy(self, t, x, y):
-        """Wind only — used by the SAR simulator for the backscatter background."""
+        """Wind only- used by the SAR simulator for the backscatter background."""
         _, _, uw, vw = self.sample_xy(t, x, y)
         return uw, vw
