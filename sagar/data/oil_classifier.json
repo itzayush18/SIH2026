@@ -1,36 +1,38 @@
 {
-  "bias": 1.628904743206124,
+  "bias": -0.6508183002610372,
   "weights": {
-    "contrast_db": 2.0700652281866776,
-    "edge_grad": 3.370524025847967,
-    "log_area_km2": -1.7752813711672517,
-    "complexity": 0.20310252715686375,
-    "elongation": 0.8162400900828287,
-    "std_db": 2.3704977514505825,
-    "local_wind_proxy": 0.1292136785401352,
-    "edge_contrast_ratio": -0.40239195265275357
+    "contrast_db": -0.44848632786043113,
+    "edge_grad": -0.11554124943330552,
+    "log_area_km2": 0.19566806733241696,
+    "complexity": -0.2585534263320699,
+    "elongation": 0.5084609246126498,
+    "std_db": 0.49576495540528714,
+    "local_wind_proxy": -0.32099294744141205,
+    "edge_contrast_ratio": -2.299657464088864
   },
   "mu": {
-    "contrast_db": 2.957283499642768,
-    "edge_grad": 1.2572115381337396,
-    "log_area_km2": 1.119185660574411,
-    "complexity": 2.258353218944043,
-    "elongation": 1.9963355335042186,
-    "std_db": 1.6334771101980254,
-    "local_wind_proxy": -2.918467755447342,
-    "edge_contrast_ratio": 1.1198915069068003
+    "contrast_db": 2.538104657635929,
+    "edge_grad": 0.3866055739370753,
+    "log_area_km2": 1.6226266091090673,
+    "complexity": 3.4891049404911736,
+    "elongation": 2.791889503840811,
+    "std_db": 1.462877681810607,
+    "local_wind_proxy": -6.973864561947977,
+    "edge_contrast_ratio": 1.5283758501259574
   },
   "sigma": {
-    "contrast_db": 1.9750410974526644,
-    "edge_grad": 0.353567851154744,
-    "log_area_km2": 0.7647239789729533,
-    "complexity": 0.46602712434985827,
-    "elongation": 0.8823305580155367,
-    "std_db": 0.6588645261057313,
-    "local_wind_proxy": 1.4197748249206843,
-    "edge_contrast_ratio": 0.09706924962083738
+    "contrast_db": 2.9718141084883514,
+    "edge_grad": 0.44415352937511826,
+    "log_area_km2": 0.37011071440692617,
+    "complexity": 1.0905083286576758,
+    "elongation": 1.7885815993235181,
+    "std_db": 1.4025066657191494,
+    "local_wind_proxy": 5.24119813698735,
+    "edge_contrast_ratio": 1.1539309670090334
   },
-  "n_train": 146,
-  "test_auc": 1.0,
-  "test_acc": 1.0
+  "n_train": 4153,
+  "test_auc": 0.862831691656892,
+  "test_acc": 0.8180505415162455,
+  "test_f1": 0.7439024390243902,
+  "trained_on": "Kaggle Sentinel-1 SAR Oil Spill Detection Dataset (CSIRO)"
 }
