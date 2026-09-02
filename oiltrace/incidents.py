@@ -61,7 +61,8 @@ def _real_incident_id(key):
 
 def run_real(scene_path, currents_nc, winds_nc, epoch_iso, outdir_root,
              ais_csv=None, synth_vessels=True, p_threshold=0.5,
-             hours_back=24.0, hours_fwd=18.0, n_particles=4000, on_stage=None):
+             hours_back=24.0, hours_fwd=18.0, n_particles=4000,
+             unet_model=None, on_stage=None):
     """Same bundle as `run()`, but on REAL inputs: a Sentinel-1 GeoTIFF, CMEMS +
     ERA5 NetCDF, and either a real AIS CSV or synthetic candidate traffic built
     around the inferred source. Produces the identical report+PNG structure the
@@ -82,7 +83,7 @@ def run_real(scene_path, currents_nc, winds_nc, epoch_iso, outdir_root,
     r = pipeline.run_on(scene, ocean, vessels, epoch_iso=epoch_iso,
                         hours_back=hours_back, hours_fwd=hours_fwd,
                         n_particles=n_particles, p_threshold=p_threshold,
-                        on_stage=on_stage)
+                        unet_model=unet_model, on_stage=on_stage)
 
     # No real AIS (e.g. Indian waters, no aisstream coverage): build candidate
     # traffic around the INFERRED source so the map has vessels to score. This is

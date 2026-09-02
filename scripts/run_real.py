@@ -53,6 +53,9 @@ def main():
     ap.add_argument("--p-threshold", type=float, default=0.5,
                      help="lower this (e.g. 0.3) if the classifier — trained on "
                           "simulated scenes — is under-confident on real SAR")
+    ap.add_argument("--unet-model", default=None,
+                     help="path to a trained U-Net checkpoint (from scripts/train_unet.py) "
+                          "to use learned segmentation instead of the logistic detector")
     ap.add_argument("--out", default="data/out/real")
     a = ap.parse_args()
 
@@ -76,8 +79,13 @@ def main():
         vessels = {}
         print("no --ais given — skipping vessel attribution")
 
-    print("detecting ...")
-    detections, labels = detect.detect(scene, p_threshold=a.p_threshold)
+    if a.unet_model:
+        print(f"detecting with U-Net {a.unet_model} ...")
+        from sagar.core import unet_detect
+        detections, labels = unet_detect.detect(scene, a.unet_model, prob_threshold=a.p_threshold)
+    else:
+        print("detecting (logistic) ...")
+        detections, labels = detect.detect(scene, p_threshold=a.p_threshold)
     if not detections:
         sys.exit("no slick detected — try --p-threshold 0.3, or confirm the "
                  "scene actually contains a spill")

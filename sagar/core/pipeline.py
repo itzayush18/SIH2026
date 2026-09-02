@@ -23,7 +23,7 @@ def _drift_speed(ocean, epoch, lat, lon):
 
 def run_on(scene, ocean, vessels, seed=3, hours_back=24.0, hours_fwd=18.0,
            n_particles=4000, epoch_iso="2026-03-14T06:00:00",
-           p_threshold=0.5, on_stage=None):
+           p_threshold=0.5, unet_model=None, on_stage=None):
     """Run the physics chain on an ALREADY-BUILT scene + ocean + vessel set —
     i.e. real data, where there is no ground truth. Returns the same result-dict
     shape as `run()` (so `sagar.api.export.build` renders it identically), but the
@@ -40,8 +40,13 @@ def run_on(scene, ocean, vessels, seed=3, hours_back=24.0, hours_fwd=18.0,
                    "pixel_m": scene.spec.pixel_m,
                    "mean_wind_ms": scene.meta.get("mean_wind")})
 
-    emit("detect", {"message": "Speckle-filtering, detrending, thresholding"})
-    detections, labels = detect.detect(scene, p_threshold=p_threshold)
+    if unet_model:
+        emit("detect", {"message": "U-Net segmentation (trained on Zenodo)"})
+        from . import unet_detect
+        detections, labels = unet_detect.detect(scene, unet_model, prob_threshold=p_threshold)
+    else:
+        emit("detect", {"message": "Speckle-filtering, detrending, thresholding"})
+        detections, labels = detect.detect(scene, p_threshold=p_threshold)
     if not detections:
         raise RuntimeError("no slick detected in the real scene "
                            "(try a lower p_threshold, or a scene with a known spill)")

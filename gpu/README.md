@@ -62,13 +62,38 @@ rather than letting it run for hours on a bad label mapping.
 scp <you>@<dgx-host>:$(pwd)/data/models/unet_v1.pt ./data/models/
 ```
 
-## What this does NOT do yet (be honest)
-- The checkpoint is a standalone U-Net; **wiring it in as the pipeline's
-  `DetectionModel`** (so `detect.detect` uses it instead of the logistic
-  classifier) is a separate follow-up, not done here.
-- Don't chase foundation models (Prithvi/SatMAE/Clay) or PINNs — per the plan
-  they need 24-80 GB VRAM, aren't trained on SAR oil signatures, and add nothing
-  measurable over U-Net for this problem. One U-Net pass is the win.
+## 5. Use the trained U-Net in the pipeline (integration IS done)
+Once `data/models/unet_v1.pt` exists (train on the DGX, or scp it to your
+laptop), the pipeline can use it instead of the logistic detector — no code
+changes needed:
+```bash
+# real incident, U-Net segmentation:
+.venv/bin/python scripts/run_real.py --scene data/scenes/spill_ennore.tif \
+  --currents data/env/cmems_currents.nc --winds data/env/era5_wind.nc \
+  --ais data/ais/chennai_ais.csv --epoch 2017-01-29T00:31:45 \
+  --unet-model data/models/unet_v1.pt --out data/out/real
+```
+`sagar/core/unet_detect.py` runs the U-Net on the scene, converts dB→0-1 the same
+way training expected, thresholds the probability map, and returns detections in
+the exact format the rest of the pipeline consumes. `incidents.run_real(...,
+unet_model=...)` does the same for the map/server path.
+
+**Honest caveat:** the U-Net trained on Zenodo 8-bit imagery; real scenes are dB,
+bridged by a percentile stretch. That bridge isn't guaranteed to match Zenodo's
+intensity distribution — **validate IoU on a labelled real scene** before quoting
+the number. If detections look off, retrain with `--no-pretrained` removed (use
+ImageNet init) and/or tune `--p-threshold`.
+
+## If the SSL error comes back
+`train.sh` now exports certifi's CA bundle, and `train_unet.py` auto-falls-back to
+training from scratch if the ImageNet download is still blocked. To force
+offline-safe from-scratch training: add `--no-pretrained` (a few more epochs to
+converge, but no network needed).
+
+## What NOT to burn GPU hours on (be honest)
+Don't chase foundation models (Prithvi/SatMAE/Clay) or PINNs — per the plan they
+need 24-80 GB VRAM, aren't trained on SAR oil signatures, and add nothing
+measurable over U-Net for this problem. One U-Net pass is the win.
 
 ## A note on "a new place for our work"
 This `gpu/` folder is the dedicated home for DGX work. If you want a fully
