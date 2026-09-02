@@ -11,6 +11,16 @@ if [ -n "$CERT" ]; then export SSL_CERT_FILE="$CERT" REQUESTS_CA_BUNDLE="$CERT" 
 DATA="${1:-data/zenodo/part1}"
 mkdir -p "$DATA"
 
+# Zenodo throttles per-connection (~250 KB/s) — aria2c uses 16 parallel
+# connections for ~10x speed and auto-resumes drops. Install it if missing.
+if ! command -v aria2c >/dev/null 2>&1; then
+  echo "== installing aria2c (fast multi-connection downloader) =="
+  (sudo apt-get update && sudo apt-get install -y aria2) \
+    || conda install -y -c conda-forge aria2 \
+    || pip install aria2p >/dev/null 2>&1 \
+    || echo "  couldn't install aria2c — will fall back to curl resume-loop (slower)"
+fi
+
 echo "== downloading Part I (record 8346860): ~40 GB images + 6 MB masks (resumable) =="
 python scripts/fetch/zenodo.py --record 8346860 --out "$DATA"
 

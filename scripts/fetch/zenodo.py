@@ -22,6 +22,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.request
 
 
@@ -52,13 +53,41 @@ def main():
         name = f["key"]
         url = f["links"]["self"]
         dest = os.path.join(a.out, name)
-        print(f"[{i}/{len(files)}] {name} ({f['size']/1e9:.2f} GB) -> {dest}")
-        # -C - resumes a partial file instead of restarting; --retry survives
-        # transient wifi drops on a download this large.
-        subprocess.run(["curl", "-L", "-C", "-", "--retry", "10",
-                        "--retry-delay", "5", "-o", dest, url], check=True)
+        size = f["size"]
+        if os.path.exists(dest) and os.path.getsize(dest) == size:
+            print(f"[{i}/{len(files)}] {name} — already complete, skipping")
+            continue
+        print(f"[{i}/{len(files)}] {name} ({size/1e9:.2f} GB) -> {dest}")
+        _download(url, dest, size)
 
     print(f"done — {len(files)} file(s) in {a.out}")
+
+
+def _download(url, dest, size=None):
+    """Zenodo throttles per-connection and drops big transfers. aria2c opens
+    many parallel connections (much faster past the throttle) and resumes; if
+    it's not installed we fall back to a curl resume-loop that keeps retrying
+    from where it left off until the file is the expected size."""
+    import shutil
+    out_dir = os.path.dirname(dest) or "."
+    if shutil.which("aria2c"):
+        # -x16/-s16: 16 connections; -c continue; -m0 infinite retries
+        subprocess.run(["aria2c", "-x16", "-s16", "-c", "-m", "0",
+                        "--retry-wait", "5", "--console-log-level", "warn",
+                        "--summary-interval", "10",
+                        "-d", out_dir, "-o", os.path.basename(dest), url], check=True)
+        return
+    print("  (aria2c not found — using curl resume-loop; install aria2 for ~10x speed)")
+    for attempt in range(1, 61):
+        r = subprocess.run(["curl", "-L", "-C", "-", "--retry", "10",
+                            "--retry-delay", "5", "-o", dest, url])
+        if size is not None and os.path.exists(dest) and os.path.getsize(dest) >= size:
+            return
+        if r.returncode == 0 and size is None:
+            return
+        print(f"  transfer dropped (attempt {attempt}) — resuming in 5s ...")
+        time.sleep(5)
+    raise RuntimeError("download did not complete after many resume attempts")
 
 
 if __name__ == "__main__":
