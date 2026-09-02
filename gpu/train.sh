@@ -11,14 +11,27 @@ CERT="$(python -c 'import certifi; print(certifi.where())' 2>/dev/null || true)"
 if [ -n "$CERT" ]; then export SSL_CERT_FILE="$CERT" REQUESTS_CA_BUNDLE="$CERT" CURL_CA_BUNDLE="$CERT"; fi
 
 DATA="${1:-data/zenodo/part1}"
-EXT="${2:-jpg}"          # change to png/tif if --inspect shows a different extension
 EPOCHS="${EPOCHS:-25}"
-BATCH="${BATCH:-16}"     # A100/H100 80GB handles 16+ at size 512; drop to 8 if OOM
+BATCH="${BATCH:-16}"     # A100 40GB handles 16 at size 512; drop to 8 if OOM
 SIZE="${SIZE:-512}"
 OUT="${OUT:-data/models/unet_v1.pt}"
 
-IMG="$DATA/images/**/*.$EXT"
-MSK="$DATA/masks/**/*.$EXT"
+if [ ! -d "$DATA/images" ] || [ -z "$(find "$DATA/images" -type f 2>/dev/null | head -1)" ]; then
+  echo "!! No data in $DATA/images — run the DOWNLOAD first:  bash gpu/get_zenodo.sh"
+  exit 1
+fi
+
+# Auto-detect the dominant image/mask file extensions (jpg/png/tif) so you don't
+# have to guess. Override with arg 2 (e.g. bash gpu/train.sh data/zenodo/part1 png).
+_ext(){ find "$1" -type f 2>/dev/null | sed 's/.*\.//' | tr 'A-Z' 'a-z' \
+        | grep -Ei 'jpg|jpeg|png|tif|tiff|bmp' | sort | uniq -c | sort -rn \
+        | head -1 | awk '{print $2}'; }
+IEXT="${2:-$(_ext "$DATA/images")}"; IEXT="${IEXT:-jpg}"
+MEXT="$(_ext "$DATA/masks")"; MEXT="${MEXT:-$IEXT}"
+echo "detected image ext: .$IEXT   mask ext: .$MEXT"
+
+IMG="$DATA/images/**/*.$IEXT"
+MSK="$DATA/masks/**/*.$MEXT"
 
 echo "=========================================================="
 echo " STEP 1  INSPECT  (pairs files + prints mask pixel values)"
