@@ -47,11 +47,14 @@ def derive(result, incident_id, jurisdiction, coast_km, coast_name):
     a.append(_mk(n, sev, "NEW_SPILL",
                  f"Oil-like feature detected — {top.area_km2:.0f} km²",
                  f"SAR dark feature classified as oil (P={top.p_oil:.2f}). "
-                 f"Bonn code: {c['bonn_class']}. Estimated volume "
+                 f"Bonn code: {c['bonn_class'].title()}. Estimated volume "
                  f"{c['volume_m3']:.0f} m³ ({c['tonnes']:.0f} t).",
                  "incident", incident_id,
-                 [f"segmentation F1 {v['segmentation']['f1']:.2f}",
-                  f"classifier P(oil)={top.p_oil:.3f}"])); n += 1
+                 # segmentation F1 needs a ground-truth mask, which only the
+                 # simulator has; real scenes report the classifier score alone.
+                 ([f"segmentation F1 {v['segmentation']['f1']:.2f}"]
+                  if v.get("segmentation") else [])
+                 + [f"classifier P(oil)={top.p_oil:.3f}"])); n += 1
 
     if top.area_km2 > 100:
         a.append(_mk(n, "HIGH", "LARGE_SPILL",

@@ -80,6 +80,9 @@ def build(report, incident_id, jurisdiction, coast_km, coast_name,
         alerts=alerts, patrol=patrol,
         provenance=_provenance(),
         validation_note=(
+            "REAL data: no ground truth exists, so no segmentation/origin error "
+            "is reported — only the source-inversion fit IoU and classifier score."
+            if report["validation"].get("data_mode") == "REAL" else
             "Segmentation and origin errors are measured against a KNOWN "
             "ground truth built by the same drift physics the pipeline "
             "inverts. Real-world accuracy will differ."),

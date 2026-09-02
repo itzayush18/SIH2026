@@ -96,7 +96,7 @@ def render(rep, incident_dir):
         ["Extent",               f"{d['area_km2']:.1f} km²  ·  "
                                  f"{d['length_km']:.1f} × {d['width_km']:.1f} km"],
         ["P(oil)",               f"{d['p_oil']:.3f}"],
-        ["Bonn class",           rep["characterization"]["bonn_class"]],
+        ["Bonn class",           rep["characterization"]["bonn_class"].title()],
         ["Volume estimate",      f"{rep['characterization']['volume_m3']:.0f} m³  "
                                  f"({rep['characterization']['tonnes']:.0f} t)"],
         ["Estimated age",        f"{rep['characterization']['age_best_h']:.1f} h  "

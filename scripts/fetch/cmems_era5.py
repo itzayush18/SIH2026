@@ -19,11 +19,26 @@ import os
 import sys
 
 
+def _bridge_env():
+    """The libraries don't actually read CMEMS_USER/CDS_UID/CDS_KEY — that's
+    just this repo's naming in .env.example. Bridge them to the env vars
+    copernicusmarine/cdsapi really check, so filling in .env is enough and
+    nobody has to separately discover COPERNICUSMARINE_SERVICE_USERNAME or
+    hand-write ~/.cdsapirc."""
+    if os.environ.get("CMEMS_USER") and not os.environ.get("COPERNICUSMARINE_SERVICE_USERNAME"):
+        os.environ["COPERNICUSMARINE_SERVICE_USERNAME"] = os.environ["CMEMS_USER"]
+        os.environ["COPERNICUSMARINE_SERVICE_PASSWORD"] = os.environ.get("CMEMS_PASSWORD", "")
+    if os.environ.get("CDS_UID") and os.environ.get("CDS_KEY") and not os.environ.get("CDSAPI_KEY"):
+        os.environ["CDSAPI_URL"] = "https://cds.climate.copernicus.eu/api"
+        os.environ["CDSAPI_KEY"] = f"{os.environ['CDS_UID']}:{os.environ['CDS_KEY']}"
+
+
 def cmems(bbox, start, end, out):
     try:
         import copernicusmarine as cm
     except ImportError:
         sys.exit("pip install copernicusmarine")
+    _bridge_env()
     w, s, e, n = bbox
     cm.subset(
         dataset_id="cmems_mod_glo_phy_anfc_0.083deg_PT1H-m",
@@ -31,7 +46,12 @@ def cmems(bbox, start, end, out):
         minimum_longitude=w, maximum_longitude=e,
         minimum_latitude=s, maximum_latitude=n,
         start_datetime=start, end_datetime=end,
-        minimum_depth=0.0, maximum_depth=0.5,
+        # This product's shallowest layer is ~0.494 m. Asking for [0, 0.5] makes
+        # CMEMS print "subset ... exceed the dataset coordinates" and then clamp
+        # to that single surface layer — which is exactly the surface current we
+        # want. The warning is expected and harmless; NetCDFOcean squeezes the
+        # length-1 depth axis on read, so nothing downstream sees it.
+        minimum_depth=0.0, maximum_depth=1.0,
         output_directory=out, output_filename="cmems_currents.nc")
 
 
@@ -40,6 +60,7 @@ def era5(bbox, start, end, out):
         import cdsapi
     except ImportError:
         sys.exit("pip install cdsapi")
+    _bridge_env()
     w, s, e, n = bbox
     c = cdsapi.Client()
     c.retrieve("reanalysis-era5-single-levels", {

@@ -27,6 +27,8 @@ from oiltrace.scenarios import SCENARIOS
 from oiltrace.jurisdictions import classify
 from oiltrace import coast as _coast
 from oiltrace import notify as _notify, pdf as _pdf, vectors as _vec
+from oiltrace import whatif as _whatif, rescore as _rescore
+from oiltrace import investigator as _inv, impact as _impact
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "data", "out")
@@ -246,6 +248,136 @@ def build_app():
     def coast():
         return JSONResponse(_coast.geojson())
 
+    # ---- one-shot AIS snapshot via VesselAPI (covers Indian waters) --------
+    # Cached per rounded-bbox for a few minutes: repeated button clicks reuse one
+    # successful pull instead of re-hitting the API (rapid calls trip its per-IP
+    # rate-limit). Ships persist in-memory so a later WAF/rate block still serves.
+    _snap_cache = {}   # key -> (epoch_seconds, ships)
+    _SNAP_TTL = 300
+
+    def _ships_from_csv(w, s, e, n):
+        """Fallback: load ships from the newest data/ais/*.csv, filtered to bbox.
+        Lets the map show real vessels you already pulled even when the live API
+        is rate-limited/blocked."""
+        import glob, csv as _csv
+        files = sorted(glob.glob(os.path.join(ROOT, "data", "ais", "*.csv")),
+                       key=os.path.getmtime, reverse=True)
+        for path in files:
+            try:
+                ships = {}
+                with open(path, newline="") as f:
+                    for row in _csv.DictReader(f):
+                        try:
+                            la, lo = float(row["LAT"]), float(row["LON"])
+                        except (KeyError, ValueError):
+                            continue
+                        if not (w <= lo <= e and s <= la <= n):
+                            continue
+                        m = str(row.get("MMSI", "")).strip()
+                        if not m:
+                            continue
+                        ships[m] = dict(mmsi=m, lat=la, lon=lo,
+                                        sog=float(row.get("SOG") or 0),
+                                        cog=float(row.get("COG") or 0),
+                                        name=row.get("VesselName") or f"MMSI {m}")
+                if ships:
+                    return list(ships.values()), os.path.basename(path)
+            except Exception:
+                continue
+        return None, None
+
+    @app.get("/api/ais/snapshot")
+    def ais_snapshot(bbox: str, refresh: int = 0):
+        try:
+            w, s, e, n = (float(x) for x in bbox.split(","))
+        except Exception:
+            return JSONResponse({"error": "bad bbox"}, status_code=400)
+        ck = ",".join(f"{v:.2f}" for v in (w, s, e, n))
+        hit = _snap_cache.get(ck)
+        if hit and not refresh and (time.time() - hit[0]) < _SNAP_TTL:
+            return JSONResponse({"ships": hit[1], "count": len(hit[1]), "cached": True})
+
+        key = os.environ.get("VESSELAPI_KEY") or os.environ.get("VESSEL_API_KEY")
+        if not key:
+            return JSONResponse({"error": "VESSELAPI_KEY not set on server"}, status_code=400)
+        try:
+            sys.path.insert(0, os.path.join(ROOT, "scripts", "fetch"))
+            import vesselapi
+            ships = vesselapi.snapshot(w, s, e, n, key)
+            _snap_cache[ck] = (time.time(), ships)
+            return JSONResponse({"ships": ships, "count": len(ships), "cached": False})
+        except (SystemExit, Exception) as ex:
+            # API blocked/rate-limited: serve the last good pull, else the newest CSV.
+            if hit:
+                return JSONResponse({"ships": hit[1], "count": len(hit[1]),
+                                     "cached": True, "stale": True})
+            ships, src = _ships_from_csv(w, s, e, n)
+            if ships:
+                return JSONResponse({"ships": ships, "count": len(ships),
+                                     "source": "csv:" + src, "stale": True})
+            return JSONResponse({"error": str(ex)}, status_code=502)
+
+    # ---- live AIS bridge: aisstream.io WebSocket -> browser SSE ------------
+    # Real ships on the map for well-covered (foreign) waters. The server holds
+    # AISSTREAM_KEY; the browser just opens an EventSource on this endpoint.
+    @app.get("/api/ais/live")
+    async def ais_live(bbox: str = "72.6,18.8,73.2,19.3"):
+        key = os.environ.get("AISSTREAM_KEY") or os.environ.get("AISSTREAM_API_KEY")
+
+        async def gen():
+            if not key:
+                yield f"event: error\ndata: {json.dumps({'message':'AISSTREAM_KEY not set on server'})}\n\n"
+                return
+            try:
+                import websockets
+            except ImportError:
+                yield f"event: error\ndata: {json.dumps({'message':'pip install websockets'})}\n\n"
+                return
+            try:
+                w, s, e, n = (float(x) for x in bbox.split(","))
+            except Exception:
+                yield f"event: error\ndata: {json.dumps({'message':'bad bbox'})}\n\n"
+                return
+            sub = {"APIKey": key, "BoundingBoxes": [[[s, w], [n, e]]],
+                   "FilterMessageTypes": ["PositionReport", "ShipStaticData"]}
+            names = {}
+            try:
+                async with websockets.connect("wss://stream.aisstream.io/v0/stream",
+                                              ping_interval=20, max_size=None) as ws:
+                    await ws.send(json.dumps(sub))
+                    yield f"event: ready\ndata: {json.dumps({'bbox':[w,s,e,n]})}\n\n"
+                    while True:
+                        raw = await ws.recv()
+                        try:
+                            msg = json.loads(raw if isinstance(raw, str) else raw.decode())
+                        except Exception:
+                            continue
+                        meta = msg.get("MetaData", {})
+                        mmsi = str(meta.get("MMSI", "")).strip()
+                        if not mmsi:
+                            continue
+                        mt = msg.get("MessageType")
+                        body = msg.get("Message", {}).get(mt, {})
+                        if mt == "ShipStaticData":
+                            names[mmsi] = (body.get("Name") or meta.get("ShipName") or "").strip()
+                            continue
+                        if mt != "PositionReport":
+                            continue
+                        lat = body.get("Latitude", meta.get("latitude"))
+                        lon = body.get("Longitude", meta.get("longitude"))
+                        if lat is None or lon is None:
+                            continue
+                        payload = dict(mmsi=mmsi, lat=lat, lon=lon,
+                                       sog=body.get("Sog", 0.0), cog=body.get("Cog", 0.0),
+                                       name=names.get(mmsi) or meta.get("ShipName", "").strip())
+                        yield f"event: ship\ndata: {json.dumps(payload, default=float)}\n\n"
+            except Exception as ex:
+                yield f"event: error\ndata: {json.dumps({'message': str(ex)[:160]})}\n\n"
+
+        return StreamingResponse(gen(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache",
+                                          "X-Accel-Buffering": "no"})
+
     # ---- environment vectors (currents + wind) ----------------------------
     @app.get("/api/environment/vectors")
     def env_vectors(south: float, west: float, north: float, east: float,
@@ -301,6 +433,76 @@ def build_app():
         events.sort(key=lambda e: e["t_rel_h"])
         return _sim_banner(dict(events=events))
 
+
+    # ---- investigator (rule-based Q&A) -----------------------------------
+    @app.get("/api/investigator")
+    def investigator(iid: str, q: str):
+        r = STORE.get(iid)
+        if not r: raise HTTPException(404, "unknown incident")
+        return _sim_banner(_inv.answer(r, q))
+
+    # ---- what-if drift ---------------------------------------------------
+    @app.post("/api/incidents/{iid}/whatif")
+    def whatif(iid: str, wind: float = 1.0, current: float = 1.0):
+        r = STORE.get(iid)
+        if not r: raise HTTPException(404, "unknown incident")
+        # We cannot re-run drift without the pixel mask; use the *inverted*
+        # source track as the mask proxy — a slightly reduced-fidelity but very
+        # fast counterfactual. Better than nothing, honestly labelled.
+        import numpy as np
+        # Build a small mask around the reported centroid.
+        d = r["detections"][0]
+        # scene dimensions from the report
+        sc = r["scene"]
+        n = sc["size"]
+        pixel_m = sc["pixel_m"]
+        origin_lat = sc["center"]["lat"]; origin_lon = sc["center"]["lon"]
+        # Build mask around the contour polygon back to pixel space (approx).
+        from sagar.core.geoutil import Origin as _O
+        origin = _O(origin_lat, origin_lon)
+        mask = np.zeros((n, n), dtype=bool)
+        for lon, lat in d.get("contour_lonlat", []):
+            x, y = origin.to_xy(lat, lon)
+            c = int(x / pixel_m + n / 2.0)
+            row = int(n / 2.0 - y / pixel_m)
+            if 0 <= row < n and 0 <= c < n:
+                mask[max(0,row-2):row+3, max(0,c-2):c+3] = True
+        meta = dict(origin_lat=origin_lat, origin_lon=origin_lon,
+                    size=n, pixel_m=pixel_m)
+        return _sim_banner(_whatif.run(meta, mask, wind_scale=wind, current_scale=current))
+
+    # ---- model-lab rescore ----------------------------------------------
+    @app.post("/api/incidents/{iid}/rescore")
+    def rescore(iid: str,
+                source_match: float = 3.2, spatiotemporal: float = 2.4,
+                alignment: float = 1.0, behaviour: float = 1.6,
+                dark: float = 1.2, prior: float = 0.7, bias: float = -3.4):
+        r = STORE.get(iid)
+        if not r: raise HTTPException(404, "unknown incident")
+        w = dict(source_match=source_match, spatiotemporal=spatiotemporal,
+                 alignment=alignment, behaviour=behaviour, dark=dark, prior=prior)
+        return _sim_banner(dict(candidates=_rescore.rescore(r["suspects"], w, bias)))
+
+    # ---- landfall / impact timeline -------------------------------------
+    @app.get("/api/incidents/{iid}/impact")
+    def impact(iid: str, near_km: float = 30.0):
+        r = STORE.get(iid)
+        if not r: raise HTTPException(404, "unknown incident")
+        return _sim_banner(dict(series=_impact.series(r["forecast"], near_km=near_km),
+                                near_km=near_km))
+
+    # ---- fleet-wide alerts feed -----------------------------------------
+    @app.get("/api/alerts")
+    def all_alerts():
+        rows = []
+        for iid, r in STORE.incidents.items():
+            for a in r["oiltrace"].get("alerts", []):
+                rows.append(dict(incident_id=iid, **a))
+        # newest CRITICAL first, then HIGH, then rest
+        rank = {"CRITICAL":0, "HIGH":1, "MEDIUM":2, "LOW":3, "INFO":4}
+        rows.sort(key=lambda x: rank.get(x["severity"], 9))
+        return _sim_banner(dict(alerts=rows, total=len(rows)))
+
     # ---- health / readiness ----------------------------------------------
     @app.get("/health")
     def health(): return {"ok": True}
@@ -324,6 +526,22 @@ def main():
 
     os.makedirs(OUT, exist_ok=True)
 
+    # Auto-restore: on boot, load every existing incident report from disk so
+    # a restart doesn't lose the warm state.
+    def _restore(outdir):
+        import glob, json as _json
+        for path in sorted(glob.glob(os.path.join(outdir, "OIL-*/report.json"))):
+            try:
+                with open(path) as f:
+                    rep = _json.load(f)
+                if rep.get("oiltrace", {}).get("incident_id"):
+                    STORE.put(rep)
+            except Exception:
+                pass
+    _restore(OUT)
+
+
+
     if not a.no_warm:
         print(f"Warming up {len(SCENARIOS)} scenarios in parallel ...")
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -333,7 +551,7 @@ def main():
             STORE.put(r)
             return sc.slug, r["oiltrace"]["incident_id"], time.time() - t0
         # numpy releases the GIL for large ops, so threads help even in CPython.
-        with ThreadPoolExecutor(max_workers=min(4, len(SCENARIOS))) as ex:
+        with ThreadPoolExecutor(max_workers=1) as ex:      # sequential — SAR sim is memory-heavy
             futs = [ex.submit(_do, s) for s in SCENARIOS]
             for f in as_completed(futs):
                 try:

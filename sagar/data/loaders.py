@@ -91,6 +91,43 @@ def load_geotiff(path, epoch=0.0, looks=4.4, band=1):
                  meta=dict(source=os.path.basename(path)))
 
 
+class _GridField:
+    """One variable preloaded into a fast (time, lat, lon) numpy interpolator.
+
+    xarray's `.interp()` is convenient but ~milliseconds per call — and the
+    inversion advects particle clouds through the ocean hundreds of times, so
+    calling it per drift step made a real run take minutes. Preloading the cube
+    once and interpolating with scipy's RegularGridInterpolator is ~100x faster.
+    """
+    def __init__(self, tsec, lat, lon, cube):
+        from scipy.interpolate import RegularGridInterpolator
+        # RGI needs strictly increasing axes; ERA5 latitude is descending.
+        if lat[0] > lat[-1]:
+            lat = lat[::-1]; cube = cube[..., ::-1, :]
+        if lon[0] > lon[-1]:
+            lon = lon[::-1]; cube = cube[..., :, ::-1]
+        cube = np.nan_to_num(cube, nan=0.0)
+        self.tmin = self.tmax = None
+        if tsec is not None and len(tsec) > 1:
+            self.tmin, self.tmax = float(tsec[0]), float(tsec[-1])
+            self.rgi = RegularGridInterpolator((tsec, lat, lon), cube,
+                                               bounds_error=False, fill_value=0.0)
+            self.dims = 3
+        else:
+            self.rgi = RegularGridInterpolator((lat, lon), cube,
+                                               bounds_error=False, fill_value=0.0)
+            self.dims = 2
+
+    def at(self, t, lat, lon):
+        la = np.ravel(lat); lo = np.ravel(lon)
+        if self.dims == 3:
+            tt = min(max(float(t), self.tmin), self.tmax)   # clamp to available range
+            pts = np.column_stack([np.full(la.shape, tt), la, lo])
+        else:
+            pts = np.column_stack([la, lo])
+        return self.rgi(pts).reshape(np.shape(lat))
+
+
 class NetCDFOcean:
     """Metocean forcing from CMEMS currents + ERA5/CMEMS winds.
 
@@ -98,10 +135,18 @@ class NetCDFOcean:
       currents : CMEMS GLOBAL_ANALYSISFORECAST_PHY_001_024 (uo, vo at the surface)
       winds    : ERA5 single levels (u10, v10)
 
-    Interpolation is trilinear in (time, lat, lon) and is done in the same local
-    ENU frame the drift engine uses, so `sample_xy` is a drop-in replacement for
-    `SyntheticOcean.sample_xy`.
+    Grids are preloaded into fast interpolators at construction, so `sample_xy`
+    is both a drop-in for `SyntheticOcean.sample_xy` AND fast enough for the
+    inversion's inner loop.
     """
+
+    # Coordinate names vary by product/version, so we detect rather than assume:
+    #   time : ERA5 from the new CDS API ships "valid_time"; CMEMS ships "time".
+    #   depth: CMEMS surface currents carry a length-1 "depth" (~0.49 m) axis.
+    _TIME_NAMES = ("time", "valid_time", "time_counter")
+    _DEPTH_NAMES = ("depth", "deptht", "lev", "z")
+    _LAT_NAMES = ("latitude", "lat", "nav_lat", "y")
+    _LON_NAMES = ("longitude", "lon", "nav_lon", "x")
 
     def __init__(self, origin: Origin, currents_nc, winds_nc, epoch_np64,
                  cur_vars=("uo", "vo"), wind_vars=("u10", "v10")):
@@ -112,30 +157,44 @@ class NetCDFOcean:
                 "xarray + netcdf4 are required for NetCDF forcing: "
                 "pip install xarray netcdf4") from e
         self.origin = origin
-        self.cur = xr.open_dataset(currents_nc)
-        self.wind = xr.open_dataset(winds_nc)
         self.epoch = np.datetime64(epoch_np64)
         self.cur_vars = cur_vars
         self.wind_vars = wind_vars
+        self._cur = {v: self._load(xr.open_dataset(currents_nc), v) for v in cur_vars}
+        self._wind = {v: self._load(xr.open_dataset(winds_nc), v) for v in wind_vars}
 
-    def _interp(self, ds, names, t, lat, lon):
-        import xarray as xr
-        when = self.epoch + np.timedelta64(int(t), "s")
-        la = xr.DataArray(np.ravel(lat), dims="p")
-        lo = xr.DataArray(np.ravel(lon), dims="p")
-        sel = ds[list(names)].interp(time=when, latitude=la, longitude=lo)
-        out = [np.nan_to_num(np.asarray(sel[n].values), nan=0.0) for n in names]
-        return [o.reshape(np.shape(lat)) for o in out]
+    def _load(self, ds, var):
+        sub = ds[[var]].reset_coords(drop=True)
+        for d in self._DEPTH_NAMES:                 # collapse surface depth layer
+            if d in sub.dims:
+                sub = sub.isel({d: 0})
+        latn = next(c for c in self._LAT_NAMES if c in sub.coords)
+        lonn = next(c for c in self._LON_NAMES if c in sub.coords)
+        tname = next((c for c in self._TIME_NAMES if c in sub.dims), None)
+        lat = np.asarray(sub[latn].values, float)
+        lon = np.asarray(sub[lonn].values, float)
+        if tname and sub.sizes[tname] > 1:
+            tvals = sub[tname].values
+            tsec = (tvals - self.epoch) / np.timedelta64(1, "s")
+            cube = sub[var].transpose(tname, latn, lonn).values
+            return _GridField(np.asarray(tsec, float), lat, lon, cube)
+        if tname:
+            sub = sub.isel({tname: 0})
+        cube = sub[var].transpose(latn, lonn).values
+        return _GridField(None, lat, lon, cube)
 
     def sample_xy(self, t, x, y):
         lat, lon = self.origin.to_ll(x, y)
-        u, v = self._interp(self.cur, self.cur_vars, t, lat, lon)
-        uw, vw = self._interp(self.wind, self.wind_vars, t, lat, lon)
+        u = self._cur[self.cur_vars[0]].at(t, lat, lon)
+        v = self._cur[self.cur_vars[1]].at(t, lat, lon)
+        uw = self._wind[self.wind_vars[0]].at(t, lat, lon)
+        vw = self._wind[self.wind_vars[1]].at(t, lat, lon)
         return u, v, uw, vw
 
     def wind_field_xy(self, t, x, y):
         lat, lon = self.origin.to_ll(x, y)
-        return self._interp(self.wind, self.wind_vars, t, lat, lon)
+        return (self._wind[self.wind_vars[0]].at(t, lat, lon),
+                self._wind[self.wind_vars[1]].at(t, lat, lon))
 
     def sample(self, t, lat, lon):
         from ..core.environment import Forcing
