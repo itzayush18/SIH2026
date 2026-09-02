@@ -5,6 +5,8 @@
 #   bash gpu/get_zenodo.sh
 set -euo pipefail
 source .venv/bin/activate 2>/dev/null || true
+CERT="$(python -c 'import certifi; print(certifi.where())' 2>/dev/null || true)"
+if [ -n "$CERT" ]; then export SSL_CERT_FILE="$CERT" REQUESTS_CA_BUNDLE="$CERT" CURL_CA_BUNDLE="$CERT"; fi
 
 DATA="${1:-data/zenodo/part1}"
 mkdir -p "$DATA"

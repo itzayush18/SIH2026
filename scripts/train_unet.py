@@ -78,13 +78,32 @@ def inspect(images_glob, masks_glob, n_samples=5):
           "ship/land), pass --mask-values with the id(s) meaning oil.")
 
 
-def build_model(in_channels):
+def build_model(in_channels, pretrained=True):
     try:
         import segmentation_models_pytorch as smp
     except ImportError:
         sys.exit("pip install segmentation-models-pytorch")
-    return smp.Unet(encoder_name="resnet34", encoder_weights="imagenet",
-                    in_channels=in_channels, classes=1, activation=None)
+    # Point Python's TLS at a real CA bundle — corporate/faculty clusters (e.g.
+    # the DGX) often can't verify certs otherwise, which breaks the ImageNet
+    # encoder-weights download with "unable to get local issuer certificate".
+    try:
+        import certifi
+        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+        os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+        os.environ.setdefault("CURL_CA_BUNDLE", certifi.where())
+    except Exception:
+        pass
+    weights = "imagenet" if pretrained else None
+    try:
+        return smp.Unet(encoder_name="resnet34", encoder_weights=weights,
+                        in_channels=in_channels, classes=1, activation=None)
+    except Exception as e:
+        print(f"WARNING: pretrained encoder download failed ({type(e).__name__}: "
+              f"{str(e)[:120]}).\n  Falling back to training from scratch "
+              "(encoder_weights=None) — works fully offline, just give it a few "
+              "more epochs to converge.")
+        return smp.Unet(encoder_name="resnet34", encoder_weights=None,
+                        in_channels=in_channels, classes=1, activation=None)
 
 
 def load_array(path, channels):
@@ -159,6 +178,8 @@ def main():
     ap.add_argument("--val-frac", type=float, default=0.15)
     ap.add_argument("--out", default="data/models/unet_v1.pt")
     ap.add_argument("--device", default=None, help="default: cuda if available, else cpu")
+    ap.add_argument("--no-pretrained", action="store_true",
+                     help="skip the ImageNet encoder download; train from scratch (offline-safe)")
     a = ap.parse_args()
 
     if a.inspect:
@@ -196,7 +217,7 @@ def main():
     val_dl = DataLoader(val_ds, batch_size=a.batch_size, shuffle=False, num_workers=2)
     print(f"train {n_train}  val {n_val}")
 
-    model = build_model(a.channels).to(device)
+    model = build_model(a.channels, pretrained=not a.no_pretrained).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     bce = torch.nn.BCEWithLogitsLoss()
 

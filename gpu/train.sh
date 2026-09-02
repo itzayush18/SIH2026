@@ -5,6 +5,11 @@
 set -euo pipefail
 source .venv/bin/activate
 
+# Corporate/faculty clusters often can't verify TLS certs -> point Python + curl
+# at certifi's CA bundle so encoder-weight / dataset downloads work.
+CERT="$(python -c 'import certifi; print(certifi.where())' 2>/dev/null || true)"
+if [ -n "$CERT" ]; then export SSL_CERT_FILE="$CERT" REQUESTS_CA_BUNDLE="$CERT" CURL_CA_BUNDLE="$CERT"; fi
+
 DATA="${1:-data/zenodo/part1}"
 EXT="${2:-jpg}"          # change to png/tif if --inspect shows a different extension
 EPOCHS="${EPOCHS:-25}"
