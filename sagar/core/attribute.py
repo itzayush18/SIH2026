@@ -20,6 +20,13 @@ Score = sigmoid( sum_i w_i * z_i ), over five evidence axes:
   5. **Vessel prior**- type, size and draft. Weakest term by design; it must
      never be able to convict on its own.
 
+Separately from the score, every candidate carries an **AIS data-quality**
+grade (coverage, ping cadence, gap structure over the release window). This is
+deliberately *not* a scoring axis: patchy AIS is not evidence of guilt, and
+adding it to `z` would let poor data quality push a vessel up the ranking. It
+instead gates the verdict- a candidate whose evidence rests on thin AIS is
+reported as INSUFFICIENT_EVIDENCE rather than given a confident rank.
+
 Every term is reported with a human-readable reason so an analyst can audit the
 ranking rather than trust a black box. The output is explicitly a *lead*, not a
 finding of guilt.
@@ -40,6 +47,23 @@ WEIGHTS = dict(source_match=3.2, spatiotemporal=2.4, alignment=1.0,
                behaviour=1.6, dark=1.2, prior=0.7)
 BIAS = -3.4
 
+# --- Abstention thresholds -------------------------------------------------
+# A lead is only presented as investigable when the evidence clears these.
+# Tuned so a vessel that merely transited the area cannot be ranked on
+# proximity alone- it must be corroborated on more than one axis.
+SCORE_FLOOR = 0.25       # below this, not worth an analyst's time
+CONFIDENT_FLOOR = 0.55   # at or above this, rank it confidently
+QUALITY_FLOOR = 0.15     # AIS too sparse to mean anything
+MIN_AXES = 2             # independent axes that must carry real signal
+AXIS_SUPPORT = 0.15      # an axis "supports" the case above this value
+
+# Cadence reference for AIS data quality (s). Class-A transmits every 2-10 s
+# underway, but that is the *transmit* rate: what reaches a terrestrial or
+# satellite feed after collisions, footprint gaps and downsampling is minutes
+# apart. 5 min is a healthy received cadence for attribution work, so anything
+# at or better than this scores full marks.
+REPORT_INTERVAL_S = 300.0
+
 # Vessel-type prior: how plausible is an operational oil discharge?
 TYPE_PRIOR = {80: 1.0, 70: 0.65, 60: 0.35, 52: 0.4, 30: 0.15}
 
@@ -57,6 +81,14 @@ class Suspect:
     closest_approach_t: float = float("nan")
     source_separation_km: float = float("nan")
     track: list = field(default_factory=list)
+    # Verdict gating- see verdict_for(). A candidate may be surfaced without
+    # being ranked, which is the point: abstaining is a first-class outcome.
+    verdict: str = "RANKED"                  # RANKED | REVIEW | INSUFFICIENT_EVIDENCE
+    verdict_reason: str = ""
+    ais_quality: float = float("nan")        # 0..1
+    ais_quality_grade: str = "ND"            # HIGH | MEDIUM | LOW | NONE | ND
+    ais_quality_notes: List[str] = field(default_factory=list)
+    supporting_axes: int = 0
 
     def to_dict(self):
         d = self.__dict__.copy()
@@ -117,6 +149,73 @@ def _dark_term(vessel, t_lo, t_hi):
     frac = min(overlap / win, 1.0)
     return frac, [f"AIS silent for {overlap/60:.0f} min "
                   f"({frac*100:.0f}% of the release window)- transponder gap"]
+
+
+def ais_quality(vessel, t_lo, t_hi):
+    """Grade the AIS record over the release window: 0 (unusable) .. 1 (complete).
+
+    Three independent components, multiplied so any one being bad drags the
+    grade down (they are not substitutes for one another):
+
+      coverage - fraction of the window actually spanned by pings
+      cadence  - observed median interval vs the 10 s underway reporting rate,
+                 saturating at REPORT_INTERVAL_S so a normal feed scores 1.0
+      contiguity - fraction of the window not inside a dark gap
+
+    Reported alongside the score, never added to it: see the module docstring.
+    """
+    ps = vessel.sorted_pings()
+    win = max(t_hi - t_lo, 1.0)
+    inside = [p for p in ps if t_lo <= p.t <= t_hi]
+    if len(inside) < 2:
+        return 0.0, "NONE", ["no AIS positions inside the release window"]
+
+    span = inside[-1].t - inside[0].t
+    coverage = max(0.0, min(span / win, 1.0))
+
+    deltas = sorted(inside[i + 1].t - inside[i].t for i in range(len(inside) - 1))
+    median_dt = deltas[len(deltas) // 2]
+    cadence = max(0.0, min(REPORT_INTERVAL_S / max(median_dt, 1e-6), 1.0))
+
+    gaps = vessel.gaps()
+    dark_s = sum(max(0.0, min(b, t_hi) - max(a, t_lo)) for a, b in gaps)
+    contiguity = max(0.0, 1.0 - dark_s / win)
+
+    q = coverage * cadence * contiguity
+    grade = ("HIGH" if q >= 0.66 else "MEDIUM" if q >= 0.33 else "LOW")
+
+    reasons = []
+    if coverage < 0.8:
+        reasons.append(f"AIS spans only {coverage*100:.0f}% of the release window")
+    if cadence < 0.8:
+        reasons.append(f"sparse reporting- median interval {median_dt/60:.1f} min "
+                       f"against a {REPORT_INTERVAL_S:.0f} s underway rate")
+    if contiguity < 0.9:
+        reasons.append(f"{dark_s/60:.0f} min of the window falls inside a transponder gap")
+    if not reasons:
+        reasons.append(f"AIS coverage complete over the release window ({len(inside)} positions)")
+    return q, grade, reasons
+
+
+def verdict_for(score, quality, n_axes_supported):
+    """Decide whether a candidate may be ranked at all.
+
+    The deck's promise is that the system abstains rather than over-claims, so
+    a candidate is only RANKED when the evidence is strong enough *and* the AIS
+    it rests on is good enough to mean anything.  Otherwise it is surfaced as
+    INSUFFICIENT_EVIDENCE with the reason stated- still visible to the analyst,
+    but explicitly not an accusation.
+    """
+    if quality < QUALITY_FLOOR:
+        return "INSUFFICIENT_EVIDENCE", "AIS record too sparse to support attribution"
+    if score < SCORE_FLOOR:
+        return "INSUFFICIENT_EVIDENCE", "evidence below the investigable threshold"
+    if n_axes_supported < MIN_AXES:
+        return "INSUFFICIENT_EVIDENCE", (f"only {n_axes_supported} evidence axis "
+                                         f"supports this candidate; {MIN_AXES} required")
+    if score >= CONFIDENT_FLOOR:
+        return "RANKED", "corroborated across multiple independent evidence axes"
+    return "REVIEW", "plausible lead, but confidence is low- analyst review required"
 
 
 def _alignment_term(hits, slick_orientation_deg):
@@ -189,6 +288,18 @@ def _score_dark_candidate(vessel, hyp, pdf, origin, detection):
                    score=score, terms=dict(source_match=sm, spatiotemporal=st,
                                            alignment=align, behaviour=beh,
                                            dark=dark, prior=prior, is_dark=1.0),
+                   # A dark vessel has no AIS by definition, so quality is ND
+                   # rather than 0- the absent transponder is the finding here,
+                   # not a data defect. The quality floor therefore does not
+                   # apply to these; the score floor still does.
+                   verdict=("RANKED" if score >= CONFIDENT_FLOOR else
+                            "REVIEW" if score >= SCORE_FLOOR else
+                            "INSUFFICIENT_EVIDENCE"),
+                   verdict_reason=("SAR-dark candidate; no AIS to corroborate- "
+                                   "analyst confirmation required"),
+                   ais_quality=float("nan"), ais_quality_grade="ND",
+                   ais_quality_notes=["no AIS transmission- quality not derivable (ND)"],
+                   supporting_axes=sum(1 for t in (sm, st, align) if t >= AXIS_SUPPORT),
                    evidence=ev, closest_approach_km=sep,
                    closest_approach_t=0.0, source_separation_km=sep,
                    track=getattr(vessel, "track_geojson", lambda: [])() or [[lon, lat, 0.0]])
@@ -282,11 +393,21 @@ def rank(vessels: Dict[str, object], pdf, detection, origin, min_prob_frac=1e-4,
         if not ev:
             ev.append("present in the search window but no corroborating evidence")
 
+        # Grade the AIS this case rests on, then decide whether it may be
+        # ranked at all. Quality gates the verdict; it never inflates the score.
+        q, grade, q_notes = ais_quality(v, t_lo, t_hi)
+        n_axes = sum(1 for t in (sm, st_n, align, beh, dark) if t >= AXIS_SUPPORT)
+        vd, vd_reason = verdict_for(score, q, n_axes)
+        ev += q_notes
+
         suspects.append(Suspect(
             mmsi=v.mmsi, name=v.name, type_name=v.type_name, length=v.length,
             score=score,
             terms=dict(source_match=sm, spatiotemporal=st_n, alignment=align,
                        behaviour=beh, dark=dark, prior=prior),
+            verdict=vd, verdict_reason=vd_reason,
+            ais_quality=q, ais_quality_grade=grade, ais_quality_notes=q_notes,
+            supporting_axes=n_axes,
             source_separation_km=sep,
             evidence=ev, closest_approach_km=d_km, closest_approach_t=best[0],
             track=v.track_geojson()))
@@ -294,7 +415,10 @@ def rank(vessels: Dict[str, object], pdf, detection, origin, min_prob_frac=1e-4,
     # Merge dark SAR-only candidates back in on the *same* scale
     if dark_suspects:
         suspects.extend(dark_suspects)
-    suspects.sort(key=lambda s: -s.score)
+    # Abstained candidates sort below every investigable lead regardless of
+    # score, so "Insufficient Evidence" can never sit at rank 1.
+    _ORDER = {"RANKED": 0, "REVIEW": 1, "INSUFFICIENT_EVIDENCE": 2}
+    suspects.sort(key=lambda s: (_ORDER.get(s.verdict, 3), -s.score))
     # If no one reached an investigable threshold, the list may be empty- that's
     # an honest "insufficient evidence" terminal state, not an error to engineer away.
     return suspects[:top_n]

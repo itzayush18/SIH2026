@@ -126,6 +126,15 @@ def build(report, incident_id, jurisdiction, coast_km, coast_name,
         attribution=[dict(rank=i+1, mmsi=s["mmsi"], name=s["name"],
                           type=s["type_name"], score=s["score"],
                           terms=s["terms"], evidence=s["evidence"],
+                          # The abstention verdict and the AIS quality it rests
+                          # on travel with the evidence: a reader must be able
+                          # to see that a candidate was deliberately NOT ranked.
+                          verdict=s.get("verdict"),
+                          verdict_reason=s.get("verdict_reason"),
+                          ais_quality=s.get("ais_quality"),
+                          ais_quality_grade=s.get("ais_quality_grade"),
+                          supporting_axes=s.get("supporting_axes"),
+                          analyst_decision=s.get("analyst_decision"),
                           narrative=(brief_for_suspect(s, report) if _has_narrative else None))
                      for i, s in enumerate(report["suspects"][:6])],
         alerts=alerts, patrol=patrol,

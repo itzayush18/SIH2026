@@ -47,6 +47,10 @@ class Store:
     """In-process incident registry. Redis would be the drop-in for a cluster."""
     def __init__(self):
         self.incidents = {}   # incident_id -> report
+        # Analyst decisions, append-only: (incident_id, mmsi) -> list of entries.
+        # Append-only because the audit trail is the product- an analyst who
+        # changes their mind adds a decision, they do not erase the earlier one.
+        self.decisions = {}
 
     def put(self, rep):
         self.incidents[rep["oiltrace"]["incident_id"]] = rep
@@ -56,6 +60,24 @@ class Store:
 
     def list(self):
         return [_inc.summary(r) for r in self.incidents.values()]
+
+    def decide(self, iid, mmsi, action, analyst, note=""):
+        entry = dict(incident_id=iid, mmsi=mmsi, action=action,
+                     analyst=analyst or "unattributed", note=note,
+                     at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+        self.decisions.setdefault((iid, mmsi), []).append(entry)
+        return entry
+
+    def decisions_for(self, iid):
+        out = []
+        for (i, _m), entries in self.decisions.items():
+            if i == iid:
+                out.extend(entries)
+        return sorted(out, key=lambda e: e["at"])
+
+    def latest_decision(self, iid, mmsi):
+        entries = self.decisions.get((iid, mmsi))
+        return entries[-1] if entries else None
 
 
 STORE = Store()
@@ -142,7 +164,42 @@ def build_app():
     def get_candidates(iid: str):
         r = STORE.get(iid)
         if not r: raise HTTPException(404, "unknown incident")
-        return _sim_banner(dict(candidates=r["suspects"]),
+        # Attach any analyst decision so the console can show the machine's
+        # verdict and the human's ruling side by side.
+        cands = []
+        for c in r["suspects"]:
+            c = dict(c)
+            d = STORE.latest_decision(iid, c.get("mmsi"))
+            c["analyst_decision"] = d
+            cands.append(c)
+        return _sim_banner(dict(candidates=cands),
+                           mode=r.get("oiltrace", {}).get("data_mode"))
+
+    # ---- analyst-in-the-loop ---------------------------------------------
+    # The deck promises the analyst retains final authority (§ "Human Verified").
+    # These endpoints are what make that true rather than decorative: the model
+    # proposes a verdict, a named analyst accepts, rejects or escalates it, and
+    # every ruling lands in an append-only ledger that ships with the evidence.
+
+    @app.post("/api/incidents/{iid}/candidates/{mmsi}/decision")
+    def decide_candidate(iid: str, mmsi: str, action: str,
+                         analyst: str = "", note: str = ""):
+        r = STORE.get(iid)
+        if not r: raise HTTPException(404, "unknown incident")
+        action = (action or "").strip().upper()
+        if action not in ("ACCEPT", "REJECT", "ESCALATE"):
+            raise HTTPException(422, "action must be ACCEPT, REJECT or ESCALATE")
+        if not any(str(c.get("mmsi")) == str(mmsi) for c in r["suspects"]):
+            raise HTTPException(404, "unknown candidate for this incident")
+        entry = STORE.decide(iid, mmsi, action, analyst, note)
+        return _sim_banner(dict(decision=entry),
+                           mode=r.get("oiltrace", {}).get("data_mode"))
+
+    @app.get("/api/incidents/{iid}/decisions")
+    def list_decisions(iid: str):
+        r = STORE.get(iid)
+        if not r: raise HTTPException(404, "unknown incident")
+        return _sim_banner(dict(decisions=STORE.decisions_for(iid)),
                            mode=r.get("oiltrace", {}).get("data_mode"))
 
     @app.get("/api/incidents/{iid}/evidence")

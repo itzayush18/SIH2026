@@ -68,7 +68,7 @@ Other entry points:
 ```bash
 .venv/Scripts/python tests/test_pipeline.py               # 10 unit tests, ~20 s
 .venv/Scripts/python scripts/validate.py --seeds 10       # batch validation, ~6 min
-.venv/Scripts/python scripts/train_on_real_dataset.py     # retrain classifier on real data
+.venv/bin/python scripts/train_on_zenodo.py              # retrain classifier on real data
 .venv/Scripts/python scripts/train_classifier.py --scenes 45   # retrain on synthetic data
 .venv/Scripts/python scripts/export_ais.py                # MarineCadastre-format AIS CSV
 ```
@@ -251,44 +251,52 @@ Browser                          FastAPI (:8000)              Python pipeline
 The 8-feature logistic oil/look-alike discriminator (`sagar/data/oil_classifier.json`)
 can be trained on two data sources:
 
-### Option A — Kaggle Sentinel-1 Dataset (real SAR chips, **recommended**)
+### Option A — Zenodo Sentinel-1 Dataset (real calibrated SAR scenes, **recommended**)
 
-**Dataset:** [Sentinel-1 SAR Oil Spill Detection Dataset](https://www.kaggle.com/datasets/harikrishnacs/sentinel-1-sar-oil-spill-detection-dataset)
-(CSIRO · 3,695 look-alike + 1,843 oil chips, 400×400 JPEG, Sentinel-1 IW GRDH)
+**Dataset:** [Sentinel-1 SAR Oil Spill Dataset, Part I](https://zenodo.org/records/8346860)
+(1,200 scenes · 2048×2048×2 float32 GeoTIFF · Sigma0 VV+VH in dB · with ground-truth masks)
+
+Download **both** archives — the masks are only 6.2 MB and easy to overlook:
 
 ```
-data/
-└── dataset/
-    └── data/
-        ├── Class_0/   ← 3,695 × no-oil / look-alike JPEGs
-        └── Class_1/   ← 1,843 × confirmed oil spill JPEGs
+01_Train_Val_Oil_Spill_images.7z   40.7 GB  →  Oil/00000.tif …
+01_Train_Val_Oil_Spill_mask.7z      6.2 MB  →  Mask_oil/00000.tif …
 ```
+
+Extract them as siblings; basenames pair 1:1. These scenes are already
+SNAP-processed (Orbit → Thermal Noise Removal → Calibration → Speckle filter →
+Terrain Correction → dB), so the pixel values are genuine decibels.
 
 ```bash
-# Full training on all 5,538 images (~5 min on CPU)
-.venv/Scripts/python scripts/train_on_real_dataset.py
+# Full training on all 1,200 scenes (~3.5 h on CPU, feature extraction dominates)
+.venv/bin/python scripts/train_on_zenodo.py \
+    --images /path/to/Oil --masks /path/to/Mask_oil \
+    --cache features.npz
 
-# Quick smoke test (200 images per class, ~30 s)
-.venv/Scripts/python scripts/train_on_real_dataset.py --max-per-class 200 --epochs 2000
+# Quick pass (120 scenes, ~20 min)
+.venv/bin/python scripts/train_on_zenodo.py --limit 120
 
-# Tune hyperparameters
-.venv/Scripts/python scripts/train_on_real_dataset.py --epochs 10000 --lr 0.05
+# Re-fit in seconds once features are cached
+.venv/bin/python scripts/train_on_zenodo.py --cache features.npz --epochs 20000
 ```
 
-**Results (full run, 5,538 images):**
+**Results (full run, 1,200 scenes → ~110,000 labelled regions):**
 
 | Metric | Value |
 |---|---|
-| Test Accuracy | 81.8% |
-| Test AUC | 0.863 |
-| Precision | 0.696 |
-| Recall | 0.799 |
-| F1 | 0.744 |
+| Test Accuracy | 91.6% |
+| Test AUC | 0.951 |
+| Recall | 0.856 |
+| F1 | 0.512 |
 
-**How it works:** The script converts each JPEG chip to a grayscale dB array,
-runs the exact same Lee filter + incidence detrend + adaptive threshold + 8-feature
-extraction used at inference, then fits a class-weighted logistic regression.
-The resulting `oil_classifier.json` is a drop-in replacement — no other code changes needed.
+**How it works:** rather than cropping one blob per image, the script runs the
+*actual inference segmenter* (`detect.dark_spot_candidates`) over each scene and
+labels every candidate by its overlap with the ground-truth mask — ≥50% inside
+is oil, ≤5% is a look-alike, and the ambiguous band between is dropped rather
+than guessed at. The negatives are therefore exactly the look-alikes the
+deployed detector really trips on. `--cache` saves the extracted feature matrix
+so hyperparameter retries cost seconds instead of hours. The resulting
+`oil_classifier.json` is a drop-in replacement — no other code changes needed.
 
 ### Option B — Synthetic data (no download required)
 
@@ -364,9 +372,9 @@ cells and biogenic films — and the ground truth is derived by *the same drift
 physics the pipeline then inverts*, so origin recovery is a fair test with a
 known answer. But:
 
-- **The classifier AUC of 0.863 is from real Kaggle data.** It will still degrade
-  on the Zenodo test split — real look-alikes are more varied than any training
-  corpus. `loaders.py` + `train_on_real_dataset.py` is the migration route.
+- **The classifier AUC of 0.951 is from the Zenodo train/val split.** It will
+  still degrade on the held-out Part III test set — real look-alikes are more
+  varied than any training corpus, and the split shares scenes and sensors.
 - **The reported search dispersion is not a calibrated error bar.** The
   optimiser converges tightly (~1 km) onto answers that can be 17 km wrong,
   because the forward map is only weakly identifiable along the drift direction.
@@ -394,7 +402,7 @@ ocean.sample_xy(t, x, y)        # → (u_cur, v_cur, u_wind, v_wind)
 
 | Source | Adapter |
 |---|---|
-| Kaggle CSIRO JPEG chips | `scripts/train_on_real_dataset.py` (training only) |
+| Zenodo Sentinel-1 scenes + masks | `scripts/train_on_zenodo.py` (training only) |
 | Zenodo Sentinel-1 oil-spill dataset (labelled TIFFs) | `loaders.load_zenodo_tiff` |
 | Sentinel-1 GRD GeoTIFF (georeferenced) | `loaders.load_geotiff` |
 | CMEMS currents + ERA5 winds | `loaders.NetCDFOcean` |
@@ -421,7 +429,7 @@ frontend/       Vite + React + TypeScript + Tailwind (Outfit, white/light-grey, 
                 src/lib/types.ts      TypeScript interfaces for Report, Incident, etc.
                 src/App.tsx           Root: SSE wiring, incident state, tab routing
                 src/components/       MapView · LeftPanel · RightPanel · Timeline · TopBar
-scripts/        run_demo · serve · validate · train_on_real_dataset · train_classifier · export_ais
+scripts/        run_demo · serve · validate · train_on_zenodo · train_classifier · export_ais
 tests/          test_pipeline.py  test_new_features.py
 docs/           architecture.md · research.md · OILTRACE.md
 data/           out/ (incident evidence packs) · dataset/ (Kaggle training data, gitignored)
@@ -473,7 +481,7 @@ pnpm dev      # → http://127.0.0.1:5173  (API calls proxy to :8000)
 |---|---|
 | Run full pipeline demo (CLI, ~30 s) | `.venv\Scripts\python scripts/run_demo.py` |
 | Run 10-scenario batch validation | `.venv\Scripts\python scripts/validate.py --seeds 10` |
-| **Retrain classifier on real data** | `.venv\Scripts\python scripts/train_on_real_dataset.py` |
+| **Retrain classifier on real data** | `.venv/bin/python scripts/train_on_zenodo.py` |
 | Retrain classifier on synthetic data | `.venv\Scripts\python scripts/train_classifier.py --scenes 45` |
 | Run unit tests | `.venv\Scripts\python tests/test_pipeline.py` |
 | Export synthetic AIS CSV | `.venv\Scripts\python scripts/export_ais.py` |

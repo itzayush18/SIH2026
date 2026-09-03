@@ -1,6 +1,92 @@
 import { useState, useEffect } from 'react';
-import { fetchJSON } from '../lib/api';
+import { fetchJSON, postDecision, isStatic } from '../lib/api';
+import type { AnalystDecision } from '../lib/api';
 import type { Report } from '../lib/types';
+
+const VERDICT: Record<string, { label: string; cls: string }> = {
+  RANKED:                { label: 'RANKED LEAD',          cls: 'text-red-700 bg-red-50 border-red-200' },
+  REVIEW:                { label: 'ANALYST REVIEW',       cls: 'text-amber-700 bg-amber-50 border-amber-200' },
+  INSUFFICIENT_EVIDENCE: { label: 'INSUFFICIENT EVIDENCE', cls: 'text-slate-600 bg-slate-100 border-slate-300' },
+};
+
+const QUALITY: Record<string, string> = {
+  HIGH:   'text-emerald-700 bg-emerald-50 border-emerald-200',
+  MEDIUM: 'text-amber-700 bg-amber-50 border-amber-200',
+  LOW:    'text-red-700 bg-red-50 border-red-200',
+  NONE:   'text-slate-600 bg-slate-100 border-slate-300',
+  ND:     'text-slate-600 bg-slate-100 border-slate-300',
+};
+
+/** Accept / Reject / Escalate for one candidate.
+ *
+ * The model proposes; the analyst disposes. Nothing here changes the score-
+ * the ruling is recorded alongside it so the audit trail shows both what the
+ * system computed and what the human decided.
+ */
+function DecisionBar({ iid, mmsi, existing }: {
+  iid: string; mmsi: string; existing?: AnalystDecision | null;
+}) {
+  const [decision, setDecision] = useState<AnalystDecision | null>(existing ?? null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [analyst, setAnalyst] = useState(() => localStorage.getItem('oiltrace.analyst') || '');
+  const [offline, setOffline] = useState(false);
+
+  useEffect(() => { isStatic().then(setOffline).catch(()=>{}); }, []);
+  useEffect(() => { setDecision(existing ?? null); }, [existing]);
+
+  async function act(action: AnalystDecision['action']) {
+    if (!analyst.trim()) { setErr('enter your name first- decisions are attributable'); return; }
+    setBusy(true); setErr('');
+    try {
+      localStorage.setItem('oiltrace.analyst', analyst.trim());
+      setDecision(await postDecision(iid, mmsi, action, analyst.trim()));
+    } catch (e: any) {
+      setErr(e?.message || 'could not record decision');
+    } finally { setBusy(false); }
+  }
+
+  if (offline) {
+    return (
+      <div className="mt-2 pt-2 border-t border-slate-100 text-[11px] font-mono text-slate-400">
+        analyst review unavailable in static export
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t border-slate-100">
+      {decision && (
+        <div className="text-[11px] font-mono text-slate-600 mb-1.5">
+          <span className="font-semibold text-slate-800">{decision.action}</span>
+          {' by '}{decision.analyst}
+          <span className="text-slate-400"> · {decision.at}</span>
+        </div>
+      )}
+      <div className="flex items-center gap-1.5">
+        <input
+          value={analyst}
+          onChange={e=>setAnalyst(e.target.value)}
+          placeholder="analyst"
+          aria-label="Analyst name"
+          className="flex-1 min-w-0 px-2 py-1 text-[11px] font-mono border border-slate-200 rounded-md focus:outline-none focus:border-brand-400"
+        />
+        {(['ACCEPT','REJECT','ESCALATE'] as const).map(a=> (
+          <button
+            key={a}
+            onClick={()=>act(a)}
+            disabled={busy}
+            title={`${a[0]}${a.slice(1).toLowerCase()} this candidate`}
+            className={`px-2 py-1 text-[10px] font-mono font-semibold rounded-md border transition disabled:opacity-40 ${
+              decision?.action===a ? 'bg-slate-800 text-white border-slate-800'
+                                   : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}
+          >{a[0]}</button>
+        ))}
+      </div>
+      {err && <div className="mt-1 text-[10px] font-mono text-red-600">{err}</div>}
+    </div>
+  );
+}
 
 const TERMS: [string, string][] = [
   ['source_match','Source track'],
@@ -210,11 +296,29 @@ export default function RightPanel({ report }: { report: Report | null }) {
                     <span className="font-mono text-xs text-slate-500">{s.type_name} · {Number(s.length).toFixed(0)} m</span>
                     <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border font-semibold ${r.color}`}>{r.label}</span>
                   </div>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    {s.verdict && (
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border font-semibold ${VERDICT[s.verdict]?.cls ?? ''}`}>
+                        {VERDICT[s.verdict]?.label ?? s.verdict}
+                      </span>
+                    )}
+                    {s.ais_quality_grade && (
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${QUALITY[s.ais_quality_grade] ?? ''}`}
+                            title="Quality of the AIS record over the release window">
+                        AIS {s.ais_quality_grade}
+                      </span>
+                    )}
+                  </div>
+                  {s.verdict_reason && (
+                    <div className="mt-1 text-[11px] text-slate-500 italic leading-snug">{s.verdict_reason}</div>
+                  )}
                   <Stack terms={s.terms} />
                   <Bars terms={s.terms} />
                   <ul className="mt-2 list-disc pl-4 space-y-1 text-xs text-slate-600 leading-relaxed">
                     {s.evidence.map((e,idx)=><li key={idx}>{e}</li>)}
                   </ul>
+                  <DecisionBar iid={report.oiltrace.incident_id} mmsi={s.mmsi}
+                               existing={s.analyst_decision} />
                 </div>
               );
             })}

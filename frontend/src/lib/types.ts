@@ -96,6 +96,17 @@ export interface Report {
     closest_approach_km: number;
     track: [number, number, number][];
     narrative?: string;
+    verdict?: 'RANKED' | 'REVIEW' | 'INSUFFICIENT_EVIDENCE';
+    verdict_reason?: string;
+    ais_quality?: number;
+    ais_quality_grade?: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE' | 'ND';
+    supporting_axes?: number;
+    analyst_decision?: {
+      action: 'ACCEPT' | 'REJECT' | 'ESCALATE';
+      analyst: string;
+      note: string;
+      at: string;
+    } | null;
   }[];
   validation: {
     segmentation: { iou: number; f1: number; precision: number; recall: number };

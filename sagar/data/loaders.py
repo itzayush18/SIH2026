@@ -28,8 +28,16 @@ def _infer_truth_path(image_path: str):
     """Guess the mask companion for a Zenodo image (IMG_..._oil.tif ↔ mask)."""
     import glob as _glob
     base = os.path.splitext(image_path)[0]
+    # zenodo.org/records/8346860 extracts to sibling Oil/ and Mask_oil/ folders
+    # with identical basenames, so try that layout too.
+    d = os.path.dirname(image_path)
+    parent, leaf = os.path.dirname(d), os.path.basename(d)
+    siblings = [os.path.join(parent, s, os.path.basename(image_path))
+                for s in ("Mask_oil", "Mask", "mask", f"Mask_{leaf}", f"{leaf}_mask")]
+
     for cand in (base.replace("image", "mask"), base + "_mask", base + "_GT",
                  os.path.join(os.path.dirname(image_path), "masks", os.path.basename(image_path)),
+                 *siblings,
                  image_path.replace(".tif", "_mask.tif"), image_path.replace(".tif", "_GT.tif")):
         if os.path.exists(cand):
             return cand
@@ -84,6 +92,25 @@ def load_zenodo_tiff(path, origin: Origin, pixel_m=10.0, epoch=0.0, looks=4.4,
                             pass
                 else:
                     arr = None
+        except Exception:
+            arr = None
+
+    # tifffile before Pillow: the Zenodo scenes are tiled, LZW-compressed,
+    # 2-band float32, which Pillow refuses outright (UnidentifiedImageError).
+    # Without this branch run_real() silently falls back to SYNTHETIC_OVERLAY
+    # on the very dataset it is named for.
+    if arr is None:
+        try:
+            import tifffile  # type: ignore
+            a = tifffile.imread(path)
+            a = np.asarray(a)
+            if a.ndim == 3:
+                # (H, W, bands) as written by SNAP, or (bands, H, W).
+                if a.shape[-1] <= 4:
+                    a = a[..., min(band, a.shape[-1] - 1)]
+                elif a.shape[0] <= 4:
+                    a = a[min(band, a.shape[0] - 1)]
+            arr = np.asarray(a, dtype=np.float32)
         except Exception:
             arr = None
 
