@@ -86,6 +86,16 @@ def registry():
                latency_hint="labeled TIFFs- 150 oil / 150 look-alike / 150 clean (Part III)",
                last_success_iso=now if zenodo_status == "ONLINE" else "",
                fallback="sagar.core.sarsim (honest fallback with SYNTHETIC_OVERLAY label)"),
+        # Planetary Computer serves Sentinel-1 GRD without credentials, so
+        # unlike the CDSE entry above this is genuinely reachable out of the
+        # box- it is the no-signup path to real imagery.
+        Source("sentinel1_mpc", "Sentinel-1 GRD (Microsoft Planetary Computer)",
+               "satellite", "FREE",
+               "https://planetarycomputer.microsoft.com/api/stac/v1",
+               auth_required=False, status="ONLINE",
+               latency_hint="no signup- anonymous STAC + signed asset URLs",
+               last_success_iso=now,
+               fallback="sagar.core.sarsim (physics-based)"),
         Source("sentinel2", "Sentinel-2 optical (CDSE)", "satellite", "FREE",
                "https://stac.dataspace.copernicus.eu/v1/", auth_required=True,
                status=("ONLINE" if _has("CDSE_USER") else "SIMULATED"),

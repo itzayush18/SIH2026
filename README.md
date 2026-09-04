@@ -356,10 +356,25 @@ lucky scene.
 | Origin position error (backward PDF alone) | 13.9 km | - | - |
 | Release time error | 198 min | 185 min | - |
 | Source course error | 21° | - | - |
-| Runtime per scenario | 32 s | - | - |
+| Runtime per scenario | 49 s | - | - |
 
-**Classifier (real Kaggle data):** Test AUC 0.863 · Accuracy 81.8% · F1 0.744
-on 1,385 held-out real Sentinel-1 chips (oil vs look-alike).
+**Classifier (real Zenodo Sentinel-1 data):** Test AUC 0.959 · Accuracy 92.3%
+on 11,013 labelled regions segmented from 1,200 real scenes (oil vs look-alike).
+
+### Against the proximity baseline
+
+The naive alternative is "whoever was nearest the slick did it". Ranking the
+same traffic by closest approach to the observed slick — no drift model, no
+inversion — is what an operator without this pipeline would do:
+
+| Ranking method | Top-1 | Top-3 |
+|---|---|---|
+| Proximity only (baseline) | 0 % | 30 % |
+| **SAGAR-DRISHTI** | **100 %** | **100 %** |
+
+The baseline fails because oil drifts. On seed 11 a fishing vessel sits
+**1.38 km** from the slick while the true polluter is **20.83 km** away and
+ranks 5th by proximity. Reproduce with `scripts/validate.py --seeds 10`.
 
 ---
 
