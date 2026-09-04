@@ -15,7 +15,7 @@ site/
 *.egg-info/
 
 # Frontend- Vite + React + Tailwind
-frontend/node_modules/
+node_modules/
 # frontend/dist is intentionally committed (production build served at /)
 # Run `npm run build` in frontend/ to refresh after changes
 C:/Temp/
@@ -24,3 +24,10 @@ C:/Temp/
 venv/
 # Regenerable by scripts/eval_classifier.py
 data/classifier_eval.npz
+
+# Local databases and artifacts
+*.duckdb
+*.duckdb.wal
+data/artifacts/
+
+pitchdeck.md
