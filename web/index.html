@@ -1,0 +1,2950 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OILTRACE — Maritime Oil Spill Intelligence Command Center</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<style>
+/* ==========================================================================
+   DESIGN TOKENS  — one place, everything else is a role
+   ========================================================================== */
+:root{
+  /* surfaces (dark maritime SOC) */
+  --plane:#04070c;      --page:#080d14;
+  --surface:#0e141b;    --surface-2:#141c26;   --surface-3:#1a2331;
+  --raise:#212c3b;
+  /* ink */
+  --ink:#f4f7fb;  --ink-2:#c3ccd8;  --muted:#7c8996;  --faint:#4e5b6c;
+  /* rules */
+  --grid:#22303f;  --rule:rgba(255,255,255,.09);  --rule-hi:rgba(255,255,255,.16);
+  /* brand + accents */
+  --brand:#3987e5;      --brand-2:#5aa9ff;   --brand-glow:rgba(90,169,255,.35);
+  --cat-1:#3987e5;      --cat-2:#d95926;     --cat-3:#199e70;
+  --cat-4:#c98500;      --cat-5:#d55181;     --cat-6:#9085e9;
+  /* status */
+  --good:#0ca30c;  --info:#3987e5;  --warning:#fab219;
+  --serious:#ec835a; --critical:#d03b3b;
+  /* type */
+  --font: system-ui,-apple-system,"Segoe UI",Inter,sans-serif;
+  --mono: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-family: var(--font);
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--plane);color:var(--ink);
+  height:100vh;overflow:hidden}
+button,input,select,textarea{font-family:inherit;color:inherit}
+a{color:var(--brand-2);text-decoration:none}
+a:hover{text-decoration:underline}
+canvas{outline:none}
+
+/* ==========================================================================
+   APP SHELL  — SOC layout
+     ┌───────────────────────────────────────────────────────┐
+     │                    topbar (46px)                       │
+     ├────┬─────────────────────────────────┬────────────────┤
+     │nav │              main               │   context      │
+     │ 60 │           (route view)          │      420       │
+     │    │                                 │                │
+     ├────┴─────────────────────────────────┴────────────────┤
+     │                    dock (auto)                         │
+     └───────────────────────────────────────────────────────┘
+   ========================================================================== */
+#shell{
+  display:grid;height:100vh;
+  grid-template-columns:60px minmax(0,1fr) 420px;
+  grid-template-rows:46px minmax(0,1fr) auto;
+  grid-template-areas:
+    "topbar topbar topbar"
+    "nav    main   context"
+    "nav    dock   context";
+}
+body.route-globe #shell,
+body.route-vessels #shell,
+body.route-analytics #shell,
+body.route-evidence #shell,
+body.route-data #shell,
+body.route-marine #shell,
+body.route-investigator #shell,
+body.route-modellab #shell,
+body.route-whatif #shell,
+body.route-compare #shell,
+body.route-graph #shell,
+body.route-impact #shell,
+body.route-alerts #shell{grid-template-columns:60px minmax(0,1fr) 0}
+body.route-globe #context,
+body.route-vessels #context,
+body.route-analytics #context,
+body.route-evidence #context,
+body.route-data #context,
+body.route-marine #context,
+body.route-investigator #context,
+body.route-modellab #context,
+body.route-whatif #context,
+body.route-compare #context,
+body.route-graph #context,
+body.route-impact #context,
+body.route-alerts #context{display:none}
+body.route-globe #dock,
+body.route-vessels #dock,
+body.route-analytics #dock,
+body.route-evidence #dock,
+body.route-data #dock,
+body.route-marine #dock,
+body.route-investigator #dock,
+body.route-modellab #dock,
+body.route-whatif #dock,
+body.route-compare #dock,
+body.route-graph #dock,
+body.route-impact #dock,
+body.route-alerts #dock{display:none}
+body.route-landing #shell{grid-template-columns:0 minmax(0,1fr) 0;grid-template-rows:0 1fr 0}
+body.route-landing #topbar,body.route-landing #nav,
+body.route-landing #context,body.route-landing #dock{display:none}
+
+/* ==========================================================================
+   TOPBAR
+   ========================================================================== */
+#topbar{grid-area:topbar;background:linear-gradient(180deg,var(--surface),var(--surface-2));
+  border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:14px;
+  padding:0 14px;z-index:1000;position:relative}
+.brand{font-size:13px;letter-spacing:.16em;font-weight:800;color:var(--ink);
+  padding-right:12px;border-right:1px solid var(--rule);margin-right:2px;
+  cursor:pointer;user-select:none}
+.brand span{color:var(--brand);text-shadow:0 0 12px var(--brand-glow)}
+.simband{color:var(--warning);border:1px solid var(--warning);
+  padding:2px 8px;border-radius:999px;font-size:9.5px;letter-spacing:.14em;
+  font-weight:600;background:rgba(250,178,25,.08);animation:sim-pulse 3.5s ease-in-out infinite}
+@keyframes sim-pulse{0%,100%{box-shadow:0 0 0 0 rgba(250,178,25,0)}50%{box-shadow:0 0 0 4px rgba(250,178,25,.08)}}
+.mode-live{color:var(--good);border-color:var(--good);background:rgba(12,163,12,.08)}
+.mode-partial{color:var(--brand-2);border-color:var(--brand-2);background:rgba(57,135,229,.08)}
+#topbar #sources{display:flex;gap:12px;align-items:center;font-size:10.5px;color:var(--muted);letter-spacing:.06em}
+.src{display:flex;gap:5px;align-items:center;cursor:default}
+.src .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.src .dot.online{background:var(--good);box-shadow:0 0 6px var(--good)}
+.src .dot.simulated{background:var(--warning);box-shadow:0 0 6px var(--warning)}
+.src .dot.offline{background:var(--critical)}
+.src .dot.cached{background:var(--info)}
+.spacer{flex:1}
+#kbar{background:var(--surface-3);border:1px solid var(--rule);color:var(--ink-2);
+  padding:5px 10px 5px 30px;font-size:11.5px;border-radius:6px;width:280px;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%237c8996' stroke-width='2'><circle cx='11' cy='11' r='8'/><path d='M21 21l-4.35-4.35'/></svg>");
+  background-repeat:no-repeat;background-position:9px 50%}
+#kbar:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-glow)}
+#topbar .stat{padding:0 10px;border-left:1px solid var(--rule);white-space:nowrap;
+  font-size:10.5px;color:var(--muted);letter-spacing:.09em;text-transform:uppercase}
+#topbar .stat b{color:var(--ink);font-variant-numeric:tabular-nums;font-weight:600;
+  font-size:12.5px;margin-right:4px}
+.stat.warn b{color:var(--warning)}.stat.crit b{color:var(--critical)}
+#utc{font-variant-numeric:tabular-nums;font-size:12px;color:var(--ink-2);
+  border-left:1px solid var(--rule);padding-left:12px}
+#utc b{color:var(--ink);font-weight:600;letter-spacing:.05em}
+
+/* ==========================================================================
+   NAVIGATION RAIL
+   ========================================================================== */
+#nav{grid-area:nav;background:var(--surface);border-right:1px solid var(--rule);
+  display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;z-index:900}
+.nb{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;
+  justify-content:center;cursor:pointer;color:var(--muted);position:relative;
+  transition:color .12s,background .12s;border:1px solid transparent}
+.nb svg{width:20px;height:20px}
+.nb:hover{color:var(--ink);background:var(--surface-2)}
+.nb.on{color:var(--brand);background:rgba(57,135,229,.12);border-color:rgba(57,135,229,.25)}
+.nb.on:after{content:"";position:absolute;left:-1px;top:9px;bottom:9px;width:3px;
+  background:var(--brand);border-radius:2px;box-shadow:0 0 8px var(--brand-glow)}
+.nb .tt{position:absolute;left:52px;top:50%;transform:translateY(-50%);
+  background:var(--raise);border:1px solid var(--rule);color:var(--ink);
+  padding:5px 10px;border-radius:6px;font-size:11.5px;white-space:nowrap;
+  opacity:0;pointer-events:none;transition:opacity .12s;z-index:1000}
+.nb:hover .tt{opacity:1}
+.nb.spacer-nb{flex:1;cursor:default;background:none;border:none}
+.nb.spacer-nb:hover{background:none}
+
+/* ==========================================================================
+   MAIN + views
+   ========================================================================== */
+#main{grid-area:main;position:relative;overflow:hidden;background:var(--page)}
+.view{position:absolute;inset:0;overflow:auto;display:none;background:var(--page)}
+.view.on{display:block}
+.view#view-command,.view#view-globe{overflow:hidden}
+#map,#globe{position:absolute;inset:0}
+
+/* map chrome */
+.maplibregl-ctrl-attrib{background:rgba(14,20,27,.85)!important;color:var(--muted)!important;font-size:10px}
+.maplibregl-ctrl-attrib a{color:var(--muted)!important}
+.maplibregl-popup-content{background:var(--surface-2)!important;color:var(--ink)!important;
+  border:1px solid var(--rule);border-radius:8px;font-size:11.5px;padding:8px 10px;
+  box-shadow:0 8px 24px rgba(0,0,0,.6);max-width:280px}
+.maplibregl-popup-tip{border-top-color:var(--surface-2)!important;border-bottom-color:var(--surface-2)!important}
+.maplibregl-ctrl-group{background:rgba(14,20,27,.9)!important;border:1px solid var(--rule)!important;
+  box-shadow:0 4px 12px rgba(0,0,0,.5)!important}
+.maplibregl-ctrl-group button span{filter:invert(1) contrast(.85) brightness(1.4)}
+.maplibregl-ctrl-scale{background:rgba(14,20,27,.85)!important;color:var(--ink-2)!important;
+  border-color:var(--rule)!important}
+
+/* map overlays */
+#maptools{position:absolute;top:12px;right:12px;z-index:600;display:flex;gap:6px;
+  background:rgba(14,20,27,.92);backdrop-filter:blur(14px);border:1px solid var(--rule);
+  border-radius:8px;padding:6px;flex-wrap:wrap;max-width:520px}
+#maptools select,#maptools button{background:transparent;color:var(--ink-2);
+  border:1px solid var(--rule);padding:5px 10px;font-size:11px;border-radius:5px;
+  cursor:pointer;font-family:inherit;transition:all .12s}
+#maptools button:hover{color:var(--ink);border-color:var(--rule-hi)}
+#maptools button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+#readout{position:absolute;left:14px;bottom:12px;font-size:10.5px;color:var(--ink-2);
+  background:rgba(14,20,27,.9);border:1px solid var(--rule);border-radius:6px;
+  padding:5px 10px;font-variant-numeric:tabular-nums;z-index:600}
+#compass{position:absolute;top:12px;left:14px;z-index:600;background:rgba(14,20,27,.9);
+  border:1px solid var(--rule);border-radius:8px;padding:8px 10px;font-size:10.5px;
+  color:var(--ink-2);letter-spacing:.09em}
+#compass b{color:var(--ink);font-weight:600}
+
+/* ==========================================================================
+   CONTEXT PANEL
+   ========================================================================== */
+#context{grid-area:context;background:var(--surface);border-left:1px solid var(--rule);
+  overflow-y:auto;padding:0;position:relative}
+#context .tabs{display:flex;gap:1px;padding:8px 8px 0;background:var(--surface);
+  position:sticky;top:0;z-index:20;border-bottom:1px solid var(--rule)}
+#context .tabs button{flex:1;background:transparent;color:var(--muted);border:0;
+  padding:9px 4px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+  cursor:pointer;border-bottom:2px solid transparent;font-weight:600;transition:color .12s}
+#context .tabs button:hover{color:var(--ink-2)}
+#context .tabs button.on{color:var(--ink);border-bottom-color:var(--brand)}
+.tabc{display:none;padding:14px}
+.tabc.on{display:block}
+
+/* live AIS ship markers (real vessels from aisstream) */
+/* no transition on the root: MapLibre rewrites its transform every frame during
+   pan/zoom, and a CSS transition there makes markers lag/float. Movement reads
+   from setLngLat updates as fresh pings arrive; only the heading pip animates. */
+.ship-mk{position:relative;width:26px;height:26px;cursor:pointer}
+.ship-mk .hull{position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;font-size:17px;line-height:1;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.8))}
+.ship-mk .hdg{position:absolute;left:50%;top:50%;width:0;height:0;
+  margin:-16px 0 0 -4px;border-left:4px solid transparent;border-right:4px solid transparent;
+  border-bottom:9px solid #2ee6a6;transform-origin:4px 16px;
+  transition:transform .8s linear,opacity .3s;
+  filter:drop-shadow(0 0 3px rgba(46,230,166,.7))}
+.ship-mk:hover .hull{font-size:20px}
+
+/* ==========================================================================
+   EMPTY STATES + SKELETON LOADING
+   ========================================================================== */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:64px 24px;color:var(--muted);gap:9px;min-height:200px}
+.empty .ico{width:46px;height:46px;border-radius:13px;display:flex;align-items:center;
+  justify-content:center;background:var(--surface-2);border:1px solid var(--rule);
+  color:var(--muted);margin-bottom:5px}
+.empty .ico svg{width:22px;height:22px}
+.empty h4{font-size:13.5px;color:var(--ink-2);font-weight:600;margin:0;letter-spacing:-.01em}
+.empty p{font-size:11.5px;color:var(--muted);margin:0;max-width:320px;line-height:1.55}
+.empty button{margin-top:8px;background:var(--surface-2);color:var(--ink);
+  border:1px solid var(--rule);padding:7px 16px;border-radius:7px;font-size:11.5px;
+  font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit}
+.empty button:hover{border-color:var(--brand);color:var(--brand-2);background:rgba(57,135,229,.08)}
+
+.skel{background:linear-gradient(100deg,var(--surface-2) 30%,var(--surface-3) 45%,var(--surface-2) 60%);
+  background-size:250% 100%;animation:skel-shimmer 1.6s ease-in-out infinite;border-radius:6px}
+@keyframes skel-shimmer{0%{background-position:140% 0}100%{background-position:-40% 0}}
+.skel-row{height:13px;border-radius:4px}
+.skel-wrap{padding:16px}
+.skel-wrap .skel-row+.skel-row{margin-top:11px}
+.skel-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:20px}
+.skel-tiles .skel{height:84px;border-radius:10px}
+.skel-card{height:76px;border-radius:8px;margin-bottom:7px}
+
+/* ==========================================================================
+   REUSABLE COMPONENTS
+   ========================================================================== */
+h2.section{font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);
+  margin:16px 0 8px;font-weight:600;display:flex;align-items:center;gap:8px}
+h2.section:first-child{margin-top:0}
+h2.section:before{content:"";flex:none;width:14px;height:1px;background:var(--muted)}
+h2.section:after{content:"";flex:1;height:1px;background:var(--grid)}
+.card{background:var(--surface-2);border:1px solid var(--rule);border-radius:8px;
+  padding:12px 13px;margin-bottom:8px}
+.card.raise{background:var(--surface-3)}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.tile{background:var(--surface-2);border:1px solid var(--rule);border-radius:8px;padding:9px 11px}
+.tile .v{font-size:20px;line-height:1.1;font-variant-numeric:tabular-nums;font-weight:600}
+.tile .u{font-size:10.5px;color:var(--muted);font-weight:400}
+.tile .k{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  margin-bottom:3px;font-weight:600}
+.kv{display:flex;justify-content:space-between;gap:10px;font-size:11.5px;color:var(--ink-2);
+  padding:4px 0;border-bottom:1px solid var(--grid)}
+.kv:last-child{border-bottom:none}
+.kv b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums;text-align:right}
+.kv b.warn{color:var(--warning)}.kv b.good{color:var(--good)}.kv b.crit{color:var(--critical)}
+.chip{display:inline-block;font-size:10px;padding:2px 7px;border-radius:999px;
+  border:1px solid currentColor;letter-spacing:.06em;text-transform:uppercase;
+  font-weight:600;white-space:nowrap}
+.chip.critical{color:var(--critical)}.chip.high{color:var(--serious)}
+.chip.medium{color:var(--warning)}.chip.low{color:var(--info)}
+.chip.info{color:var(--muted)}.chip.good{color:var(--good)}
+.badge-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle}
+
+/* score bars */
+.bar{display:grid;grid-template-columns:96px 1fr 34px;align-items:center;
+  gap:8px;margin-top:5px;font-size:10.5px;color:var(--ink-2)}
+.track{display:block;height:6px;background:var(--grid);border-radius:3px;overflow:hidden;
+  position:relative}
+.fill{display:block;height:100%;border-radius:0 3px 3px 0;background:var(--brand);
+  transition:width .5s cubic-bezier(.4,0,.2,1);position:relative}
+.fill:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,
+  transparent 60%,rgba(255,255,255,.15));border-radius:inherit}
+.bar .n{font-variant-numeric:tabular-nums;color:var(--muted);text-align:right;font-weight:600}
+
+/* horizontal bar chart (analytics) — label column never lets the bar paint over it */
+.hbar{display:grid;grid-template-columns:minmax(90px,180px) 1fr 32px;align-items:center;
+  gap:12px;margin-top:10px;font-size:11.5px;color:var(--ink-2)}
+.hbar:first-child{margin-top:0}
+.hbar .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}
+.hbar .track{height:10px}
+.hbar .n{font-variant-numeric:tabular-nums;color:var(--ink);font-weight:600;text-align:right}
+
+/* evidence list */
+ul.ev{margin:8px 0 0;padding-left:16px;font-size:11px;color:var(--ink-2);line-height:1.55}
+ul.ev li{margin-bottom:3px}
+ul.ev li::marker{color:var(--brand)}
+
+/* legend row */
+.legend{display:flex;flex-wrap:wrap;gap:5px 12px;font-size:10.5px;color:var(--ink-2);margin-bottom:6px}
+.legend i{width:11px;height:11px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:-1px}
+
+/* suspect card */
+.suspect{cursor:pointer;transition:border-color .15s,transform .15s;position:relative}
+.suspect:hover{border-color:var(--rule-hi);transform:translateY(-1px)}
+.suspect.active{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand) inset}
+.suspect .rank{position:absolute;top:-6px;left:-6px;width:22px;height:22px;border-radius:50%;
+  background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.suspect .rank.top{background:var(--critical)}
+.srow{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.nm{font-size:13px;font-weight:600}
+.mm{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.score{font-size:22px;font-variant-numeric:tabular-nums;line-height:1;font-weight:700}
+
+/* alerts */
+.alert{background:var(--surface-2);border-left:3px solid var(--muted);border-radius:6px;
+  padding:9px 11px;margin-bottom:6px;font-size:11.5px}
+.alert.al-CRITICAL{border-left-color:var(--critical);background:linear-gradient(90deg,rgba(208,59,59,.08),var(--surface-2))}
+.alert.al-HIGH{border-left-color:var(--serious)}
+.alert.al-MEDIUM{border-left-color:var(--warning)}
+.alert.al-LOW{border-left-color:var(--info)}
+.alert .t{font-size:9.5px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;font-weight:600}
+.alert .h{font-weight:600;margin-top:2px;color:var(--ink)}
+.alert .m{margin-top:3px;color:var(--ink-2);font-size:11px;line-height:1.5}
+
+/* patrol */
+.patrol{background:var(--surface-2);border:1px solid var(--rule);border-radius:6px;
+  padding:9px 11px;margin-bottom:6px}
+.patrol .hd{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.08em}
+.patrol .p1{color:var(--critical)}.patrol .p2{color:var(--serious)}.patrol .p3{color:var(--info)}
+.patrol .tg{font-size:12.5px;color:var(--ink);font-weight:600;margin:3px 0}
+.patrol .rs{font-size:11px;color:var(--ink-2);line-height:1.5}
+
+/* download buttons */
+#downloadBtns a{display:inline-block;background:var(--surface-2);color:var(--ink-2);
+  border:1px solid var(--rule);border-radius:5px;padding:5px 10px;font-size:11px;
+  text-decoration:none;margin:3px 4px 0 0;transition:all .12s}
+#downloadBtns a:hover{color:var(--ink);border-color:var(--brand);text-decoration:none}
+
+/* ==========================================================================
+   DOCK / TIMELINE
+   ========================================================================== */
+#dock{grid-area:dock;background:linear-gradient(0deg,var(--surface),var(--surface-2));
+  border-top:1px solid var(--rule);padding:10px 14px 8px;position:relative}
+.trow{display:flex;align-items:center;gap:12px}
+#play{width:38px;height:38px;flex:none;border-radius:10px;cursor:pointer;
+  border:1px solid var(--rule);background:var(--brand);color:#fff;
+  font-size:14px;line-height:1;box-shadow:0 0 20px var(--brand-glow)}
+#play.playing{background:var(--surface-2);color:var(--ink);box-shadow:none}
+.speedbtn{background:var(--surface-2);color:var(--muted);border:1px solid var(--rule);
+  padding:4px 8px;font-size:10.5px;border-radius:5px;cursor:pointer;font-family:inherit}
+.speedbtn.on{color:var(--ink);border-color:var(--brand);background:rgba(57,135,229,.12)}
+#tl{flex:1;height:4px;accent-color:var(--brand)}
+#clock{font-variant-numeric:tabular-nums;font-size:16px;min-width:150px;text-align:right;font-weight:600}
+#clock small{display:block;font-size:10px;color:var(--muted);letter-spacing:.06em;font-weight:400}
+.ticks{position:relative;height:22px;margin:5px 60px 0 60px;font-size:10px;color:var(--muted)}
+.ticks span{position:absolute;transform:translateX(-50%);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ticks .now{color:var(--ink);font-weight:700}
+.ticks .keyframe{width:1px;background:var(--brand);top:-4px;bottom:0;position:absolute;pointer-events:none}
+
+/* ==========================================================================
+   COMMAND VIEW — left rail (scenario + incidents)
+   ========================================================================== */
+#view-command{display:none;position:absolute;inset:0}
+#view-command.on{display:grid;grid-template-columns:300px 1fr}
+#cmdLeft{background:var(--surface);border-right:1px solid var(--rule);overflow-y:auto;
+  display:flex;flex-direction:column;padding:12px}
+#cmdMap{position:relative;overflow:hidden}
+#cmdMap #map{position:absolute;inset:0}
+#scenario{width:100%;background:var(--surface-2);color:var(--ink);
+  border:1px solid var(--rule);border-radius:6px;padding:7px 8px;font-size:12px;font-family:inherit}
+#runOne{width:100%;background:var(--brand);color:#fff;border:0;padding:10px;
+  border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;margin-top:6px;
+  box-shadow:0 4px 14px rgba(57,135,229,.3);transition:filter .12s}
+#runOne:hover{filter:brightness(1.1)}
+#runOne.busy{background:var(--surface-2);color:var(--muted);cursor:progress;box-shadow:none}
+#runAll{width:100%;background:transparent;color:var(--ink-2);border:1px solid var(--rule);
+  padding:8px;margin-top:6px;border-radius:6px;font-size:11.5px;cursor:pointer}
+#runAll:hover{color:var(--ink);border-color:var(--rule-hi)}
+#stagebar{margin-top:10px;height:4px;background:var(--surface-2);border-radius:2px;overflow:hidden}
+#stagebar span{display:block;width:0%;height:100%;background:linear-gradient(90deg,var(--brand),var(--brand-2));
+  transition:width .4s ease;box-shadow:0 0 10px var(--brand-glow)}
+#stagetext{margin-top:5px;font-size:10px;color:var(--muted);min-height:14px;letter-spacing:.06em}
+
+.iCard{background:var(--surface-2);border:1px solid var(--rule);border-radius:8px;
+  padding:10px 12px;margin-bottom:7px;cursor:pointer;transition:all .15s;
+  position:relative;overflow:hidden}
+.iCard:hover{border-color:var(--rule-hi);transform:translateY(-1px)}
+.iCard.active{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand) inset}
+.iCard:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:var(--muted)}
+.iCard.sev-CRITICAL:before{background:var(--critical);box-shadow:0 0 8px var(--critical)}
+.iCard.sev-HIGH:before{background:var(--serious)}
+.iCard.sev-MEDIUM:before{background:var(--warning)}
+.iCard .rowa{display:flex;justify-content:space-between;align-items:center;
+  font-size:11.5px;color:var(--muted)}
+.iCard .iid{font-weight:600;color:var(--ink);letter-spacing:.03em}
+.iCard .rowb{font-size:12.5px;color:var(--ink);margin-top:2px;font-weight:600;line-height:1.3}
+.iCard .rowc{font-size:11px;color:var(--muted);margin-top:4px;
+  font-variant-numeric:tabular-nums;line-height:1.4}
+
+#emptyIC{padding:14px;color:var(--muted);font-size:11.5px;line-height:1.6;text-align:center}
+
+/* ==========================================================================
+   LANDING
+   ========================================================================== */
+#view-landing{display:none;position:absolute;inset:0;overflow-y:auto}
+#view-landing.on{display:block}
+.hero{min-height:100vh;position:relative;overflow:hidden;
+  background:radial-gradient(ellipse at 30% 20%,rgba(57,135,229,.14),transparent 50%),
+             radial-gradient(ellipse at 70% 80%,rgba(216,89,38,.10),transparent 55%),
+             var(--plane)}
+.hero-inner{max-width:1240px;margin:0 auto;padding:90px 48px 60px;
+  display:grid;grid-template-columns:1.15fr 1fr;gap:60px;align-items:center;min-height:100vh}
+.hero .eyebrow{color:var(--brand-2);font-size:12px;letter-spacing:.28em;font-weight:700;
+  text-transform:uppercase;margin:0 0 20px;display:flex;align-items:center;gap:12px}
+.hero .eyebrow:before{content:"";width:32px;height:1px;background:var(--brand-2);display:inline-block}
+.hero h1{font-size:64px;line-height:1;letter-spacing:-.02em;font-weight:800;margin:0 0 20px;color:var(--ink)}
+.hero h1 span{background:linear-gradient(135deg,var(--brand-2),var(--brand));-webkit-background-clip:text;
+  background-clip:text;-webkit-text-fill-color:transparent}
+.hero .sub{font-size:17px;color:var(--ink-2);line-height:1.55;margin:0 0 28px;max-width:520px}
+.hero .cta{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:30px}
+.hero .cta a{padding:12px 22px;border-radius:8px;font-size:13px;font-weight:600;
+  letter-spacing:.05em;transition:all .15s;text-decoration:none;display:inline-flex;
+  align-items:center;gap:8px}
+.hero .cta .primary{background:var(--brand);color:#fff;box-shadow:0 6px 20px rgba(57,135,229,.35)}
+.hero .cta .primary:hover{background:var(--brand-2);transform:translateY(-2px)}
+.hero .cta .ghost{background:transparent;color:var(--ink);border:1px solid var(--rule-hi)}
+.hero .cta .ghost:hover{border-color:var(--brand);color:var(--brand-2)}
+.hero .meta{display:flex;flex-wrap:wrap;gap:24px;font-size:11.5px;color:var(--muted);
+  padding-top:24px;border-top:1px solid var(--rule)}
+.hero .meta b{color:var(--ink);font-weight:600}
+.hero-visual{position:relative;aspect-ratio:1;background:var(--surface);border:1px solid var(--rule);
+  border-radius:16px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.hero-visual .sar-frame{position:absolute;inset:0;background:radial-gradient(ellipse at 40% 40%,#4a4a4a,#1a1a1a);
+  overflow:hidden}
+.hero-visual .sar-frame:before{content:"";position:absolute;inset:20% 30% 50% 20%;
+  background:radial-gradient(ellipse,rgba(0,0,0,.85),transparent 70%);border-radius:40% 60% 50% 40%;
+  transform:rotate(-25deg);filter:blur(4px)}
+.hero-visual .grid-overlay{position:absolute;inset:0;background-image:
+  linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);
+  background-size:40px 40px;pointer-events:none}
+.hero-visual .scan{position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--brand),transparent);
+  animation:scan 3.5s linear infinite;box-shadow:0 0 20px var(--brand-glow)}
+@keyframes scan{0%{top:0}100%{top:100%}}
+.hero-visual .label{position:absolute;top:16px;left:16px;font-size:10.5px;
+  color:var(--brand-2);letter-spacing:.14em;font-weight:600;text-transform:uppercase}
+.hero-visual .stamp{position:absolute;bottom:16px;right:16px;font-size:10px;
+  color:var(--muted);font-variant-numeric:tabular-nums;text-align:right}
+.hero-visual .callout{position:absolute;left:38%;top:36%;font-size:10.5px;color:var(--critical);
+  font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.hero-visual .callout:before{content:"";position:absolute;top:-30px;left:-6px;width:60px;height:34px;
+  border:2px solid var(--critical);border-radius:50%;transform:rotate(-25deg);
+  box-shadow:0 0 20px rgba(208,59,59,.4)}
+
+.hero-cards{max-width:1240px;margin:0 auto;padding:80px 48px;display:grid;
+  grid-template-columns:repeat(3,1fr);gap:18px}
+.hero-card{background:var(--surface);border:1px solid var(--rule);border-radius:14px;
+  padding:26px;transition:all .2s}
+.hero-card:hover{border-color:var(--brand);transform:translateY(-3px);
+  box-shadow:0 12px 30px rgba(0,0,0,.4)}
+.hero-card .num{font-size:11px;letter-spacing:.2em;color:var(--brand);font-weight:700;
+  margin-bottom:12px}
+.hero-card h3{font-size:20px;font-weight:700;margin:0 0 8px;color:var(--ink)}
+.hero-card p{font-size:13px;color:var(--ink-2);line-height:1.55;margin:0}
+
+/* ==========================================================================
+   ANALYTICS VIEW
+   ========================================================================== */
+#view-analytics{padding:24px 32px 60px}
+.dash-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:20px}
+.dash-head h1{font-size:22px;font-weight:700;margin:0;color:var(--ink);letter-spacing:-.01em}
+.dash-head .subtitle{color:var(--muted);font-size:12px;margin-top:2px}
+.dash-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.dash-tile{background:var(--surface);border:1px solid var(--rule);border-radius:10px;
+  padding:16px 18px;position:relative;overflow:hidden}
+.dash-tile .k{font-size:10.5px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;font-weight:600;margin-bottom:8px}
+.dash-tile .v{font-size:30px;line-height:1;font-weight:700;font-variant-numeric:tabular-nums}
+.dash-tile .u{font-size:12px;color:var(--muted);margin-left:4px;font-weight:400}
+.dash-tile .delta{font-size:11.5px;margin-top:6px;color:var(--good);font-variant-numeric:tabular-nums}
+.dash-tile.hot .v{color:var(--critical)}
+.dash-tile.warm .v{color:var(--warning)}
+.dash-tile.calm .v{color:var(--good)}
+
+.dash-row{display:grid;grid-template-columns:1.5fr 1fr;gap:14px;margin-bottom:14px}
+.dash-panel{background:var(--surface);border:1px solid var(--rule);border-radius:10px;
+  padding:16px 18px;min-height:280px}
+.dash-panel h3{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  margin:0 0 14px;font-weight:600}
+.dash-panel .chart{width:100%;min-height:60px;position:relative}
+.dash-list{background:var(--surface);border:1px solid var(--rule);border-radius:10px;
+  padding:16px 18px}
+.dl-row{display:grid;grid-template-columns:1fr 60px 90px;gap:10px;padding:8px 0;
+  border-bottom:1px solid var(--grid);align-items:center;font-size:12px}
+.dl-row:last-child{border-bottom:0}
+.dl-bar{height:5px;background:var(--grid);border-radius:3px;overflow:hidden;position:relative}
+.dl-bar span{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--brand-2));border-radius:3px}
+.dl-row .val{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted);font-size:11.5px}
+
+/* ==========================================================================
+   VESSELS / EVIDENCE / DATA / MARINE  — plain scrolling views
+   ========================================================================== */
+#view-vessels,#view-evidence,#view-data,#view-marine{padding:24px 32px 60px}
+.plate{background:var(--surface);border:1px solid var(--rule);border-radius:10px;
+  padding:16px 18px;margin-bottom:14px}
+.plate h3{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  margin:0 0 12px;font-weight:600}
+.table{width:100%;border-collapse:collapse;font-size:11.5px;font-variant-numeric:tabular-nums}
+.table th,.table td{text-align:right;padding:7px 8px;border-bottom:1px solid var(--grid)}
+.table th:first-child,.table td:first-child{text-align:left}
+.table th{color:var(--muted);font-weight:600;letter-spacing:.08em;text-transform:uppercase;font-size:10px}
+.table tr:hover td{background:var(--surface-2)}
+.table td.name{color:var(--ink);font-weight:600}
+
+/* Data source matrix */
+.srcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.srccard{background:var(--surface-2);border:1px solid var(--rule);border-radius:8px;padding:14px}
+.srccard .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.srccard .name{font-weight:600;font-size:13px;color:var(--ink)}
+.srccard .cat{font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+.srccard .desc{font-size:11px;color:var(--ink-2);line-height:1.5;margin:4px 0}
+.srccard .row{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-top:8px}
+.status-pill{font-size:10px;padding:2px 7px;border-radius:999px;border:1px solid currentColor;font-weight:600;letter-spacing:.06em}
+.status-pill.online{color:var(--good);background:rgba(12,163,12,.1)}
+.status-pill.simulated{color:var(--warning);background:rgba(250,178,25,.1)}
+.status-pill.offline{color:var(--critical);background:rgba(208,59,59,.1)}
+.status-pill.cached{color:var(--info);background:rgba(57,135,229,.1)}
+
+/* Marine gauges */
+.gauge{background:var(--surface-2);border:1px solid var(--rule);border-radius:10px;padding:16px}
+.gauge .k{font-size:10.5px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;font-weight:600}
+.gauge .v{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px}
+.gauge .u{font-size:12px;color:var(--muted);font-weight:400}
+.gauge svg{width:100%;height:70px;margin-top:8px}
+.gauges{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+
+/* ==========================================================================
+   GLOBE VIEW
+   ========================================================================== */
+#view-globe #globe{position:absolute;inset:0;background:#03060a}
+.globe-controls{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:600;
+  background:rgba(14,20,27,.92);backdrop-filter:blur(14px);border:1px solid var(--rule);
+  border-radius:10px;padding:12px 16px;display:flex;gap:12px;align-items:center}
+.globe-controls .kv{padding:0}
+#globeInfo{position:absolute;top:20px;left:20px;z-index:600;
+  background:rgba(14,20,27,.92);backdrop-filter:blur(14px);border:1px solid var(--rule);
+  border-radius:10px;padding:14px 16px;max-width:340px}
+#globeInfo h3{font-size:11px;letter-spacing:.14em;color:var(--brand);margin:0 0 6px;
+  text-transform:uppercase;font-weight:700}
+#globeInfo p{font-size:11.5px;color:var(--ink-2);margin:0;line-height:1.55}
+
+/* ==========================================================================
+   TOAST + LOADER
+   ========================================================================== */
+#toast{position:fixed;top:60px;right:20px;background:var(--raise);border:1px solid var(--rule);
+  border-radius:8px;padding:12px 18px;font-size:12px;color:var(--ink);
+  box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:5000;
+  transform:translateX(400px);transition:transform .3s cubic-bezier(.4,0,.2,1);opacity:0}
+#toast.on{transform:translateX(0);opacity:1}
+#toast.err{border-color:var(--critical);border-left:3px solid var(--critical)}
+#toast.ok{border-color:var(--good);border-left:3px solid var(--good)}
+
+#loader{position:fixed;inset:0;background:var(--plane);z-index:9999;display:flex;
+  align-items:center;justify-content:center;flex-direction:column;gap:20px;
+  transition:opacity .4s;pointer-events:none}
+#loader.off{opacity:0;pointer-events:none}
+#loader .brand{font-size:22px;letter-spacing:.24em;font-weight:800;color:var(--ink)}
+#loader .brand span{color:var(--brand)}
+#loader .spinner{width:40px;height:40px;border-radius:50%;
+  border:2px solid var(--surface-2);border-top-color:var(--brand);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loader .msg{font-size:11px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase}
+
+
+/* ==========================================================================
+   NEW VIEWS (investigator, model lab, compare, evidence graph, impact, alerts)
+   ========================================================================== */
+#view-investigator,#view-modellab,#view-whatif,#view-compare,#view-graph,#view-impact,#view-alerts{padding:24px 32px 60px}
+
+/* investigator chat */
+.chat{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.chat .msg{padding:12px 16px;border-radius:10px;font-size:13px;line-height:1.55}
+.chat .msg.q{background:var(--surface-3);color:var(--ink);align-self:flex-end;max-width:70%;border:1px solid var(--rule)}
+.chat .msg.a{background:var(--surface);border:1px solid var(--rule);color:var(--ink-2);align-self:flex-start;max-width:95%}
+.chat .msg .cite{margin-top:8px;font-size:10.5px;color:var(--muted);font-family:var(--mono);letter-spacing:.02em}
+.chat-form{position:sticky;bottom:0;background:var(--page);padding:12px 0 4px;
+  display:flex;gap:10px;max-width:820px;margin:12px auto 0}
+.chat-form input{flex:1;background:var(--surface-2);color:var(--ink);border:1px solid var(--rule);
+  border-radius:8px;padding:10px 14px;font-size:13px}
+.chat-form input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-glow)}
+.chat-form button{background:var(--brand);color:#fff;border:0;padding:10px 18px;border-radius:8px;
+  font-size:13px;font-weight:600;cursor:pointer}
+.chat-suggest{display:flex;flex-wrap:wrap;gap:6px;max-width:820px;margin:8px auto 0}
+.chat-suggest button{background:var(--surface-2);color:var(--ink-2);border:1px solid var(--rule);
+  padding:5px 10px;font-size:11px;border-radius:999px;cursor:pointer}
+.chat-suggest button:hover{color:var(--ink);border-color:var(--brand)}
+
+/* model lab */
+.lab-grid{display:grid;grid-template-columns:280px 1fr;gap:18px}
+.lab-controls{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:16px}
+.lab-slider{margin-bottom:14px}
+.lab-slider .row{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-2);margin-bottom:4px}
+.lab-slider .row b{color:var(--brand-2);font-variant-numeric:tabular-nums}
+.lab-slider input[type=range]{width:100%;accent-color:var(--brand)}
+.lab-reset{width:100%;background:transparent;color:var(--ink-2);border:1px solid var(--rule);
+  padding:8px;border-radius:6px;font-size:11.5px;cursor:pointer;margin-top:6px}
+.lab-out{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:16px}
+.lab-out .rankrow{display:grid;grid-template-columns:34px 1fr 60px 90px;gap:10px;
+  padding:8px 0;border-bottom:1px solid var(--grid);font-size:12px;align-items:center}
+.lab-out .rankrow:last-child{border-bottom:0}
+.lab-out .rankrow .idx{width:24px;height:24px;border-radius:50%;
+  background:var(--surface-2);color:var(--ink-2);text-align:center;line-height:24px;font-size:11px;font-weight:700}
+.lab-out .rankrow .idx.top{background:var(--critical);color:#fff}
+.lab-out .rankrow .delta{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.lab-out .rankrow .delta.up{color:var(--good)}.lab-out .rankrow .delta.down{color:var(--critical)}
+
+/* what-if */
+.whatif-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.whatif-panel{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:16px}
+.whatif-panel h4{font-size:11px;color:var(--muted);margin:0 0 10px;letter-spacing:.12em;text-transform:uppercase}
+.whatif-delta{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink)}
+.whatif-delta.good{color:var(--good)}.whatif-delta.bad{color:var(--critical)}
+
+/* compare */
+.cmp-grid{display:grid;grid-template-columns:280px 1fr 1fr;gap:14px}
+.cmp-col{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:16px}
+.cmp-picker select{width:100%;background:var(--surface-2);color:var(--ink);border:1px solid var(--rule);
+  border-radius:6px;padding:7px 8px;font-size:12px}
+.cmp-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:8px 0;border-bottom:1px solid var(--grid);
+  font-size:12px;align-items:baseline}
+.cmp-row:last-child{border-bottom:0}
+.cmp-row .lab{font-size:10.5px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;grid-column:1/-1;margin-bottom:2px}
+.cmp-row b{color:var(--ink);font-variant-numeric:tabular-nums;font-weight:600}
+
+/* evidence graph */
+#graphSvg{width:100%;height:600px;background:var(--surface);border:1px solid var(--rule);border-radius:10px}
+.graph-legend{display:flex;gap:16px;font-size:11px;color:var(--ink-2);margin-top:10px}
+.graph-legend .swatch{width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:5px}
+
+/* impact chart */
+#impactSvg{width:100%;height:280px}
+
+/* alerts feed */
+.feed{display:flex;flex-direction:column;gap:6px;max-width:900px}
+.feed-row{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:12px 14px;
+  display:grid;grid-template-columns:80px 1fr auto;gap:14px;align-items:center;cursor:pointer;transition:all .12s}
+.feed-row:hover{border-color:var(--rule-hi)}
+.feed-row .sev{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:700}
+.feed-row .sev.CRITICAL{color:var(--critical)}.feed-row .sev.HIGH{color:var(--serious)}
+.feed-row .sev.MEDIUM{color:var(--warning)}.feed-row .sev.LOW{color:var(--info)}
+.feed-row .body{font-size:12.5px;color:var(--ink)}
+.feed-row .body .m{font-size:11px;color:var(--muted);margin-top:2px;line-height:1.5}
+.feed-row .who{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* notification bell */
+.bell{position:relative;cursor:pointer;padding:0 8px;color:var(--ink-2);height:100%;
+  display:flex;align-items:center;border-left:1px solid var(--rule)}
+.bell:hover{color:var(--ink)}
+.bell svg{width:16px;height:16px}
+.bell .dot{position:absolute;top:10px;right:5px;width:8px;height:8px;border-radius:50%;
+  background:var(--critical);box-shadow:0 0 6px var(--critical);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
+@media(max-width:1400px){
+  #shell{grid-template-columns:60px minmax(0,1fr) 380px}
+  .hero-inner{padding:60px 32px}
+  .hero h1{font-size:48px}
+}
+@media(max-width:1100px){
+  .hero-inner{grid-template-columns:1fr;gap:40px}
+  .hero-cards{grid-template-columns:1fr}
+  .dash-grid{grid-template-columns:repeat(2,1fr)}
+  .dash-row{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body class="route-landing">
+
+<div id="loader">
+  <div class="brand">OIL<span>TRACE</span></div>
+  <div class="spinner"></div>
+  <div class="msg" id="loaderMsg">initialising</div>
+</div>
+
+<div id="toast"></div>
+
+<div id="shell">
+
+  <!-- ==================================================================
+       TOPBAR
+       ================================================================== -->
+  <div id="topbar">
+    <div class="brand" data-route="landing">OIL<span>TRACE</span></div>
+    <div class="simband" id="modeBadge">SIMULATION</div>
+    <input type="search" id="kbar" placeholder="Search MMSI, vessel, incident, place…"/>
+    <div class="spacer"></div>
+    <div id="sources"></div>
+    <div class="stat">INCIDENTS <b id="stI">0</b></div>
+    <div class="stat crit">HIGH RISK <b id="stH">0</b></div>
+    <div class="stat">SUSPECTS <b id="stC">0</b></div>
+    <div class="bell" data-route="alerts" title="Alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="dot" id="bellDot" style="display:none"></span></div>
+    <div id="utc"><b id="utcTime">--:--:--</b><span style="color:var(--muted);margin-left:6px">UTC</span></div>
+  </div>
+
+  <!-- ==================================================================
+       NAV RAIL
+       ================================================================== -->
+  <nav id="nav">
+    <div class="nb" data-route="command" title="Command Center">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
+      <span class="tt">Command Center</span></div>
+    <div class="nb" data-route="globe" title="Global Ocean View">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
+      <span class="tt">Global Ocean View</span></div>
+    <div class="nb" data-route="vessels" title="Vessel Intelligence">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17h18l-2 4H5zM12 3v10M6 13h12l-2-8H8z"/></svg>
+      <span class="tt">Vessel Intelligence</span></div>
+    <div class="nb" data-route="analytics" title="Analytics">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18M7 15l4-4 3 3 5-7"/></svg>
+      <span class="tt">Analytics</span></div>
+    <div class="nb" data-route="marine" title="Marine Conditions">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12c3 0 3-2 6-2s3 2 6 2 3-2 6-2M3 18c3 0 3-2 6-2s3 2 6 2 3-2 6-2M3 6c3 0 3-2 6-2s3 2 6 2 3-2 6-2"/></svg>
+      <span class="tt">Marine Conditions</span></div>
+    <div class="nb" data-route="evidence" title="Evidence & Reports">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M9 15h6M9 11h2"/></svg>
+      <span class="tt">Evidence & Reports</span></div>
+    <div class="nb" data-route="data" title="Data Sources">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/></svg>
+      <span class="tt">Data Sources</span></div>
+
+    <div class="nb" data-route="investigator" title="AI Investigator">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 16v-2M12 8h.01M9.5 9.5a2.5 2.5 0 1 1 5 0c0 1.5-2.5 2-2.5 3"/></svg>
+      <span class="tt">AI Investigator</span></div>
+    <div class="nb" data-route="modellab" title="Model Lab">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v6l-3 9h18l-3-9V3M6 3h12M9 3v6m6-6v6"/></svg>
+      <span class="tt">Model Lab</span></div>
+    <div class="nb" data-route="whatif" title="What-If Simulation">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v6M12 22v-6M4.93 4.93l4.24 4.24M14.83 14.83l4.24 4.24M2 12h6M22 12h-6M4.93 19.07l4.24-4.24M14.83 9.17l4.24-4.24"/></svg>
+      <span class="tt">What-If Simulation</span></div>
+    <div class="nb" data-route="compare" title="Vessel Comparison">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H3v18h5M16 3h5v18h-5M12 5v14"/></svg>
+      <span class="tt">Vessel Comparison</span></div>
+    <div class="nb" data-route="graph" title="Evidence Graph">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="12" r="2"/><path d="M8 16l3-3M14 10l3-3"/></svg>
+      <span class="tt">Evidence Graph</span></div>
+    <div class="nb" data-route="impact" title="Landfall Impact">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+      <span class="tt">Landfall Impact</span></div>
+    <div class="nb" data-route="alerts" title="Alert Feed">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      <span class="tt">Alert Feed</span></div>
+
+    <div class="nb spacer-nb"></div>
+    <div class="nb" data-action="notify" title="Notify channels">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      <span class="tt">Notify configured channels</span></div>
+    <div class="nb" data-action="help" title="Keyboard shortcuts">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/></svg>
+      <span class="tt">Help & shortcuts</span></div>
+  </nav>
+
+  <!-- ==================================================================
+       MAIN
+       ================================================================== -->
+  <div id="main">
+
+    <!-- LANDING -->
+    <div class="view on" id="view-landing">
+      <div class="hero">
+        <div class="hero-inner">
+          <div>
+            <p class="eyebrow">SIH 2026 · SIH26143 · NTRO · Disaster Management</p>
+            <h1>Every ship. Every slick.<br><span>Full attribution.</span></h1>
+            <p class="sub">OILTRACE turns satellite imagery, ocean physics and AIS records into
+              explainable, time-aware vessel attribution leads. The whole chain — SAR detection,
+              drift hindcasting, source-term inversion, six-axis attribution — running on a laptop.</p>
+            <div class="cta">
+              <a href="#command" class="primary" data-route="command">
+                Launch Command Center
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+              </a>
+              <a href="#globe" class="ghost" data-route="globe">Open Global View</a>
+              <a href="https://github.com/DG10911/oiltrace" class="ghost" target="_blank" rel="noopener">GitHub</a>
+            </div>
+            <div class="meta">
+              <div><b>13/13</b> unit tests · <b>9/9</b> HTTP tests</div>
+              <div><b>10/10</b> attribution accuracy · <b>9.4 km</b> mean origin error</div>
+              <div><b>32 s</b> full pipeline per scenario</div>
+            </div>
+          </div>
+          <div class="hero-visual">
+            <div class="sar-frame"></div>
+            <div class="grid-overlay"></div>
+            <div class="scan"></div>
+            <div class="label">SAR ▸ VV ▸ σ⁰ dB</div>
+            <div class="callout">DETECTED</div>
+            <div class="stamp">SIMULATION<br>2026-03-14 06:00 UTC</div>
+          </div>
+        </div>
+        <div class="hero-cards">
+          <div class="hero-card">
+            <div class="num">01 · DETECT</div>
+            <h3>SAR + AI segmentation</h3>
+            <p>Sentinel-1 σ⁰ preprocessed with refined-Lee speckle filtering, incidence-trend removal,
+              then multi-scale threshold + 8-feature classifier that separates oil from low-wind
+              cells and biogenic films.</p>
+          </div>
+          <div class="hero-card">
+            <div class="num">02 · TRACE</div>
+            <h3>Source-term inversion</h3>
+            <p>A moving line-source hypothesis, forward-advected through the metocean fields,
+              scored against the observed slick by IoU. Recovers where <em>and when</em>
+              the discharge happened — not just a probability blob.</p>
+          </div>
+          <div class="hero-card">
+            <div class="num">03 · ATTRIBUTE</div>
+            <h3>Six-axis explainable scoring</h3>
+            <p>Source-track match, origin coincidence, behavioural anomaly, AIS dark period,
+              axis alignment, vessel prior — each with a written evidence sentence.
+              Investigative lead, not a black box.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COMMAND -->
+    <div class="view" id="view-command">
+      <aside id="cmdLeft">
+        <h2 class="section">Scenario</h2>
+        <select id="scenario"></select>
+        <button id="runOne">▶ Run pipeline</button>
+        <button id="runAll">▶▶ Run all scenarios</button>
+        <div id="stagebar"><span></span></div>
+        <div id="stagetext">idle</div>
+        <h2 class="section" style="margin-top:16px">Active incidents</h2>
+        <div id="incidents"><div class="skel skel-card"></div><div class="skel skel-card"></div><div class="skel skel-card"></div></div>
+      </aside>
+      <div id="cmdMap">
+        <div id="map"></div>
+        <div id="compass">z<b id="zoomVal">—</b> · pitch <b id="pitchVal">—°</b> · bearing <b id="bearVal">—°</b></div>
+        <div id="maptools">
+          <select id="basemap">
+            <option value="esri-imagery">Esri satellite</option>
+            <option value="esri-ocean">Ocean bathymetry</option>
+            <option value="carto-dark">Carto dark</option>
+            <option value="osm">OpenStreetMap</option>
+          </select>
+          <button id="btnVec" title="Currents + wind vectors">⇢ Vectors</button>
+          <button id="btnLiveAis" title="Live AIS stream (aisstream — foreign/coastal waters only)">◉ Live AIS</button>
+          <button id="btnSnapAis" title="Real AIS snapshot for this view (VesselAPI — works over Indian waters)">⚓ AIS now</button>
+          <button id="btn3d" title="Toggle 3D perspective">3D</button>
+          <button id="btnFrame" title="Recenter on the slick">◎ Frame</button>
+        </div>
+        <div id="readout">move the cursor over the map</div>
+      </div>
+    </div>
+
+    <!-- GLOBE -->
+    <div class="view" id="view-globe">
+      <div id="globe"></div>
+      <div id="globeInfo">
+        <h3>Global Ocean Monitoring</h3>
+        <p>Every active incident geolocated on a 3D globe. Rotate with drag, zoom with the wheel.
+          Yellow rings show MARPOL Special Areas; blue outlines mark Indian EEZ.
+          The size of each dot scales with slick area; colour with severity.</p>
+      </div>
+      <div class="globe-controls">
+        <div class="kv"><span style="color:var(--muted)">Incidents on globe</span>
+          <b style="color:var(--ink);margin-left:8px" id="globeCount">—</b></div>
+        <button class="speedbtn on" data-globespeed="pause">⏸ Pause</button>
+        <button class="speedbtn" data-globespeed="slow">⟳ Slow</button>
+        <button class="speedbtn" data-globespeed="fast">⟳⟳ Fast</button>
+        <button class="speedbtn" id="btnGlobeAis" title="Live AIS ships (aisstream — zoom into a covered coast)">◉ Live AIS</button>
+      </div>
+    </div>
+
+    <!-- VESSELS -->
+    <div class="view" id="view-vessels">
+      <div class="dash-head">
+        <div>
+          <h1>Vessel Intelligence</h1>
+          <div class="subtitle">All ranked candidates across every active incident, sorted by attribution score</div>
+        </div>
+      </div>
+      <div id="vesselsBody"></div>
+    </div>
+
+    <!-- ANALYTICS -->
+    <div class="view" id="view-analytics">
+      <div class="dash-head">
+        <div>
+          <h1>Fleet-wide Analytics</h1>
+          <div class="subtitle">Aggregate metrics across every incident this session</div>
+        </div>
+      </div>
+      <div id="analyticsBody"></div>
+    </div>
+
+    <!-- MARINE -->
+    <div class="view" id="view-marine">
+      <div class="dash-head">
+        <div>
+          <h1>Marine Conditions</h1>
+          <div class="subtitle">Metocean state that drove the drift model for the selected incident</div>
+        </div>
+      </div>
+      <div id="marineBody"></div>
+    </div>
+
+    <!-- EVIDENCE -->
+    <div class="view" id="view-evidence">
+      <div class="dash-head">
+        <div>
+          <h1>Evidence & Reports</h1>
+          <div class="subtitle">Investigation dossiers with full provenance chain per incident</div>
+        </div>
+      </div>
+      <div id="evidenceBody"></div>
+    </div>
+
+    <!-- INVESTIGATOR -->
+    <div class="view" id="view-investigator">
+      <div class="dash-head"><div>
+        <h1>AI Investigator</h1>
+        <div class="subtitle">Ask questions about the active incident — every answer cites the field it came from.</div>
+      </div></div>
+      <div id="investigatorBody"></div>
+    </div>
+
+    <!-- MODEL LAB -->
+    <div class="view" id="view-modellab">
+      <div class="dash-head"><div>
+        <h1>Model Lab</h1>
+        <div class="subtitle">Live-tune the six attribution-axis weights and watch the ranking reshuffle.</div>
+      </div></div>
+      <div id="modellabBody"></div>
+    </div>
+
+    <!-- WHAT-IF -->
+    <div class="view" id="view-whatif">
+      <div class="dash-head"><div>
+        <h1>What-If Simulation</h1>
+        <div class="subtitle">Re-invert the source under perturbed wind and current fields.</div>
+      </div></div>
+      <div id="whatifBody"></div>
+    </div>
+
+    <!-- COMPARE -->
+    <div class="view" id="view-compare">
+      <div class="dash-head"><div>
+        <h1>Vessel Comparison</h1>
+        <div class="subtitle">Side-by-side of two candidates within an incident.</div>
+      </div></div>
+      <div id="compareBody"></div>
+    </div>
+
+    <!-- EVIDENCE GRAPH -->
+    <div class="view" id="view-graph">
+      <div class="dash-head"><div>
+        <h1>Evidence Graph</h1>
+        <div class="subtitle">Force-directed view: incident → source → suspects → evidence terms → alerts.</div>
+      </div></div>
+      <div id="graphBody"></div>
+    </div>
+
+    <!-- IMPACT -->
+    <div class="view" id="view-impact">
+      <div class="dash-head"><div>
+        <h1>Landfall Impact Timeline</h1>
+        <div class="subtitle">Fraction of forward-drift parcels within the coastal-alert threshold over time.</div>
+      </div></div>
+      <div id="impactBody"></div>
+    </div>
+
+    <!-- ALERTS -->
+    <div class="view" id="view-alerts">
+      <div class="dash-head"><div>
+        <h1>Alert Feed</h1>
+        <div class="subtitle">Every alert triggered across every incident, newest severity first.</div>
+      </div></div>
+      <div id="alertsBody"></div>
+    </div>
+
+    <!-- DATA -->
+    <div class="view" id="view-data">
+      <div class="dash-head">
+        <div>
+          <h1>Data Sources</h1>
+          <div class="subtitle">Every provider, its tier, credentials required, and current status</div>
+        </div>
+      </div>
+      <div id="dataBody"></div>
+    </div>
+  </div>
+
+  <!-- ==================================================================
+       CONTEXT PANEL (Command view)
+       ================================================================== -->
+  <aside id="context">
+    <div class="tabs">
+      <button data-tab="overview" class="on">Overview</button>
+      <button data-tab="suspects">Suspects</button>
+      <button data-tab="alerts">Alerts</button>
+      <button data-tab="patrol">Patrol</button>
+      <button data-tab="timeline">Timeline</button>
+      <button data-tab="evidence">Evidence</button>
+    </div>
+    <div id="tab-overview" class="tabc on"></div>
+    <div id="tab-suspects" class="tabc"></div>
+    <div id="tab-alerts"   class="tabc"></div>
+    <div id="tab-patrol"   class="tabc"></div>
+    <div id="tab-timeline" class="tabc"></div>
+    <div id="tab-evidence" class="tabc"></div>
+  </aside>
+
+  <!-- ==================================================================
+       DOCK
+       ================================================================== -->
+  <div id="dock">
+    <div class="trow">
+      <button id="play" title="Space plays">▶</button>
+      <button class="speedbtn" data-speed="1">1×</button>
+      <button class="speedbtn on" data-speed="4.5">4×</button>
+      <button class="speedbtn" data-speed="12">12×</button>
+      <input type="range" id="tl" min="-24" max="18" step="0.25" value="0">
+      <div id="clock">—<small>ACQUISITION</small></div>
+    </div>
+    <div class="ticks" id="ticks"></div>
+  </div>
+
+</div><!-- /shell -->
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+/* ==========================================================================
+   STATIC-MODE SHIM
+   GitHub Pages can only serve static files. If /api/... 404s we transparently
+   rewrite to ./api/....json produced by scripts/build_site.py. The rest of the
+   app is oblivious to which mode it runs in.
+   ========================================================================== */
+const _origFetch = window.fetch;
+let _staticModeCheck = null;
+async function _isStatic(){
+  // Cache the in-flight promise, not just the resolved value — the first
+  // couple of API calls on boot fire concurrently, and without this every one
+  // of them independently re-probes ./api/STATIC.json before any resolves.
+  if(!_staticModeCheck){
+    _staticModeCheck = _origFetch('./api/STATIC.json', {cache:'no-store'})
+      .then(r => r.ok).catch(() => false);
+  }
+  return _staticModeCheck;
+}
+function _staticize(url){
+  if(!url.startsWith('/api/')) return url;
+  if(url.endsWith('.geojson')) return '.' + url;
+  const [path] = url.split('?');
+  if(path.endsWith('.pdf')) return '.' + path;
+  return '.' + path + '.json';
+}
+window.fetch = async function(url, opts){
+  if(typeof url === 'string' && url.startsWith('/api/')){
+    if(await _isStatic()) return _origFetch(_staticize(url), opts);
+  }
+  return _origFetch(url, opts);
+};
+
+/* ==========================================================================
+   UTIL
+   ========================================================================== */
+const fmt = (n,d=1) => Number.isFinite(+n) ? (+n).toFixed(d) : '—';
+// Age estimators can diverge (Fay spreading blows up for a thin, wide slick) —
+// mirrors the 14-day plausibility cutoff sagar.core.characterize already uses
+// to exclude an estimator from the fused age, so a diverged value reads as
+// "excluded", not as a wall of meaningless digits.
+const fmtAge = s => {
+  if(!s || !Number.isFinite(s) || s <= 0) return '<span style="color:var(--muted)">—</span>';
+  if(s >= 14*24*3600) return '<span style="color:var(--muted)" title="'+s.toExponential(2)+' s — diverged, excluded from fusion">diverged — excluded</span>';
+  return fmt(s/3600,2)+' h';
+};
+const el = h => { const t=document.createElement('template'); t.innerHTML=h.trim(); return t.content.firstChild; };
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const toast = (msg, kind='') => {
+  const t = $('#toast'); t.className = kind; t.textContent = msg;
+  t.classList.add('on');
+  clearTimeout(t._to);
+  t._to = setTimeout(()=>t.classList.remove('on'), 2800);
+};
+const debounce = (fn,ms) => { let h; return (...a)=>{clearTimeout(h);h=setTimeout(()=>fn(...a),ms)}; };
+
+function risk(s){
+  if(s>=.75) return {label:'PRIME SUSPECT',      c:'critical', hex:'#d03b3b'};
+  if(s>=.45) return {label:'PERSON OF INTEREST', c:'high',     hex:'#ec835a'};
+  if(s>=.20) return {label:'TO ELIMINATE',       c:'medium',   hex:'#fab219'};
+  return       {label:'CLEARED',                 c:'good',     hex:'#0ca30c'};
+}
+// Empty states + skeleton loaders — shared so every screen that waits on an
+// incident or a fetch looks the same, instead of each one improvising a
+// plain "Loading…" or "no data" sentence.
+const EMPTY_ICONS = {
+  pin:   '<path d="M12 21s-7-6.5-7-11a7 7 0 0 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.3"/>',
+  chart: '<path d="M4 19V10M10 19V5M16 19v-6M3 19h18"/>',
+  inbox: '<path d="M3 8l2.5-5h13L21 8"/><path d="M3 8v11h18V8M3 8h5l1.5 3h5L16 8h5"/>',
+  ghost: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 0 1 5 0c0 1.5-2.5 2-2.5 3.5M12 17h.01"/>',
+};
+function emptyState(title, {sub='', icon='pin', cta='Go to Command Center', route='command'}={}){
+  return `<div class="empty">
+    <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">${EMPTY_ICONS[icon]||EMPTY_ICONS.pin}</svg></div>
+    <h4>${title}</h4>
+    ${sub ? `<p>${sub}</p>` : ''}
+    ${cta ? `<button data-route="${route}">${cta}</button>` : ''}
+  </div>`;
+}
+function skeletonRows(n=4){
+  return `<div class="skel-wrap">${Array.from({length:n}).map((_,i)=>
+    `<div class="skel skel-row" style="width:${92-((i*13)%40)}%"></div>`).join('')}</div>`;
+}
+function skeletonTiles(n=4){
+  return `<div class="skel-tiles">${Array.from({length:n}).map(()=>'<div class="skel"></div>').join('')}</div>`;
+}
+function skeletonCards(n=3){
+  return Array.from({length:n}).map(()=>'<div class="skel skel-card"></div>').join('');
+}
+// Inline icon set for download/action buttons — matches the nav rail's own
+// stroke-SVG language instead of mixing in emoji glyphs.
+const _ico = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;vertical-align:-2px;margin-right:5px">${d}</svg>`;
+const ICO_PDF   = _ico('<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/>');
+const ICO_JSON  = _ico('<path d="M8 3H6a2 2 0 0 0-2 2v3.5a2 2 0 0 1-1.5 2 2 2 0 0 1 1.5 2V16a2 2 0 0 0 2 2h2M16 3h2a2 2 0 0 1 2 2v3.5a2 2 0 0 0 1.5 2 2 2 0 0 0-1.5 2V16a2 2 0 0 1-2 2h-2"/>');
+const ICO_MAP   = _ico('<path d="M12 21s-7-6.5-7-11a7 7 0 0 1 14 0c0 4.5-7 11-7 11z"/><circle cx="12" cy="10" r="2.3"/>');
+const ICO_GEO   = _ico('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/>');
+const ICO_CSV   = _ico('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/>');
+const ICO_RADIO = _ico('<path d="M12 12v9M8 21h8"/><circle cx="12" cy="7" r="4"/><path d="M5.5 8.5a7 7 0 0 1 0-3M18.5 8.5a7 7 0 0 0 0-3"/>');
+const TERMS = [
+  ['source_match','Source track'],
+  ['spatiotemporal','Origin envelope'],
+  ['behaviour','Behaviour'],
+  ['dark','AIS gap'],
+  ['alignment','Axis align'],
+  ['prior','Vessel prior']];
+const STAGES = ['ingest','detect','characterize','drift','invert','attribute'];
+const STAGE_LABELS = {
+  ingest:'Reading SAR + metocean forcing',
+  detect:'Speckle → detrend → segment → classify',
+  characterize:'Thickness · volume · age estimators',
+  drift:'Advecting 4000 particles',
+  invert:'Source-term inversion',
+  attribute:'Reconstructing AIS · scoring vessels'};
+
+/* ==========================================================================
+   BASEMAP CATALOGUE
+   ========================================================================== */
+const BASEMAPS = {
+  'esri-imagery':{tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+    attribution:'Imagery © Esri, Maxar', maxzoom:19},
+  'esri-ocean':{tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}'],
+    attribution:'Ocean © Esri, GEBCO', maxzoom:13},
+  'carto-dark':{tiles:['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+    'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],
+    attribution:'© OSM © CARTO', maxzoom:19},
+  'osm':{tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+    attribution:'© OSM contributors', maxzoom:19},
+};
+function styleFor(name){
+  const b = BASEMAPS[name];
+  return {version:8,
+    sources:{base:{type:'raster',tiles:b.tiles,tileSize:256,attribution:b.attribution,maxzoom:b.maxzoom}},
+    layers:[{id:'bg',type:'background',paint:{'background-color':'#04070c'}},
+            {id:'base',type:'raster',source:'base',paint:{'raster-opacity':.9}}]};
+}
+function emptyFC(){return {type:'FeatureCollection',features:[]};}
+function bboxFromCorners(bounds){const [[s,w],[n,e]]=bounds;return [[w,n],[e,n],[e,s],[w,s]];}
+function ringPoly(ring){
+  const r = ring.slice();
+  if(r.length && (r[0][0]!==r[r.length-1][0]||r[0][1]!==r[r.length-1][1])) r.push(r[0]);
+  return {type:'Feature',geometry:{type:'Polygon',coordinates:[r]},properties:{}};
+}
+
+/* ==========================================================================
+   APP STATE
+   ========================================================================== */
+const state = {
+  map:null, globe:null,
+  R:null,                        // active report
+  incidents:[],                  // summary list
+  scenarios:[],
+  sources:[],
+  T:0, playing:false, speed:4.5, lastFrame:0,
+  epochMs:0, activeIncident:null,
+  originSlices:[], activeSliceIdx:-1,
+  vectorsOn:false, globeSpin:'pause', globeAnimId:null,
+  liveAis:false, liveAisES:null, liveShips:{}, liveMarkers:{}, liveMap:null, aisSub:null, aisMode:null,
+  route:'landing',
+};
+
+/* ==========================================================================
+   BOOT
+   ========================================================================== */
+async function boot(){
+  loaderMsg('loading providers…');
+  try{ await loadStatus(); }catch(e){}
+  loaderMsg('loading scenarios…');
+  try{ await loadScenarios(); }catch(e){}
+  loaderMsg('reading incidents…');
+  try{ await loadIncidents(); }catch(e){}
+  wireGlobal();
+  loaderMsg('reading first incident…');
+  // Preload the first incident so per-incident views work without going through Command.
+  if(state.incidents.length){
+    try{
+      const j = await (await fetch('/api/incidents/'+state.incidents[0].incident_id)).json();
+      state.R = j.report;
+      state.epochMs = Date.parse(state.R.generated_for+'Z');
+      state.activeIncident = state.incidents[0].incident_id;
+      renderIncidentList();
+      renderContextPanel(state.R);
+    }catch(e){}
+  } else {
+    $('#tab-overview').innerHTML = emptyState('No incident selected', {
+      sub:'Pick a scenario on the left and run the pipeline, then select an incident to load its intelligence.', cta:null});
+  }
+  loaderMsg('mounting UI…');
+  handleRoute();
+
+  // Live UTC clock
+  const tick = ()=>{
+    const d=new Date();
+    $('#utcTime').textContent =
+      String(d.getUTCHours()).padStart(2,'0')+':' +
+      String(d.getUTCMinutes()).padStart(2,'0')+':' +
+      String(d.getUTCSeconds()).padStart(2,'0');
+  };
+  tick(); setInterval(tick,1000);
+  setInterval(loadStatus, 15000);
+  hideLoader();
+}
+function loaderMsg(m){ const e=$('#loaderMsg'); if(e) e.textContent=m; }
+function hideLoader(){ setTimeout(()=>$('#loader').classList.add('off'),200); }
+
+async function loadStatus(){
+  const s = await (await fetch('/api/system/status')).json();
+  state.sources = s.sources;
+  const box = $('#sources'); box.innerHTML='';
+  const grouped = {satellite:{}, ocean:{}, weather:{}, ais:{}, gis:{}};
+  for(const sr of s.sources){
+    if(!grouped[sr.category]) grouped[sr.category] = {};
+    grouped[sr.category][sr.status.toLowerCase()] =
+      (grouped[sr.category][sr.status.toLowerCase()]||0)+1;
+  }
+  for(const cat of ['satellite','ocean','weather','ais','gis']){
+    const g = grouped[cat] || {};
+    const status = g.online ? 'online' : (g.simulated ? 'simulated' : (g.offline ? 'offline' : 'offline'));
+    const label = {satellite:'SAT',ocean:'OCN',weather:'WX',ais:'AIS',gis:'GIS'}[cat];
+    box.append(el(`<div class="src" title="${cat.toUpperCase()}: ${JSON.stringify(g)}"><span class="dot ${status}"></span>${label}</div>`));
+  }
+  const md = $('#modeBadge');
+  const anyOnline = s.sources.some(x=>x.status==='ONLINE' && x.category!=='gis');
+  if(anyOnline){ md.textContent='PARTIAL REAL'; md.className='simband mode-partial'; }
+}
+async function loadScenarios(){
+  const r = await (await fetch('/api/scenarios')).json();
+  state.scenarios = r.scenarios;
+  const sel = $('#scenario'); sel.innerHTML='';
+  r.scenarios.forEach(s=>{
+    const o=document.createElement('option');
+    o.value=s.slug; o.textContent=`${s.name}  ·  ${s.difficulty}`;
+    sel.append(o);
+  });
+}
+async function loadIncidents(){
+  const r = await (await fetch('/api/incidents')).json();
+  state.incidents = r.incidents;
+  $('#stI').textContent = r.incidents.length;
+  $('#stH').textContent = r.incidents.filter(i=>i.severity==='CRITICAL'||i.severity==='HIGH').length;
+  $('#stC').textContent = r.incidents.reduce((a,i)=>a+(i.prime_suspect?1:0),0);
+  renderIncidentList();
+  if(state.map && state.map.isStyleLoaded && state.map.isStyleLoaded()) renderAllIncidentMarkers();
+}
+function renderIncidentList(){
+  const box = $('#incidents'); box.innerHTML='';
+  if(!state.incidents.length){
+    box.append(el(`<div id="emptyIC">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="width:22px;height:22px;opacity:.5;margin-bottom:6px"><path d="M3 8l2.5-5h13L21 8"/><path d="M3 8v11h18V8M3 8h5l1.5 3h5L16 8h5"/></svg><br>
+      No incidents yet — pick a scenario above and run the pipeline.</div>`));
+    return;
+  }
+  state.incidents.forEach(i=>{
+    const card = el(`<div class="iCard sev-${i.severity} ${state.activeIncident===i.incident_id?'active':''}" data-id="${i.incident_id}">
+      <div class="rowa">
+        <span class="iid">${i.incident_id}</span>
+        <span class="chip ${i.severity.toLowerCase()}">${i.severity}</span>
+      </div>
+      <div class="rowb">${i.scenario.subtitle}</div>
+      <div class="rowc">${fmt(i.area_km2,0)} km²  ·  P(oil) ${fmt(i.p_oil,2)}<br>
+        ${i.jurisdiction}  ·  ${fmt(i.nearest_coast.km,0)} km to ${i.nearest_coast.name}</div>
+    </div>`);
+    card.addEventListener('click',()=>openIncident(i.incident_id));
+    box.append(card);
+  });
+}
+
+/* ==========================================================================
+   ROUTING
+   ========================================================================== */
+const ROUTES = ['landing','command','globe','vessels','analytics','marine','evidence','data','investigator','modellab','whatif','compare','graph','impact','alerts'];
+function setRoute(r){
+  if(!ROUTES.includes(r)) r='command';
+  state.route = r;
+  document.body.className = 'route-'+r;
+  $$('.view').forEach(v=>v.classList.toggle('on', v.id==='view-'+r));
+  $$('.nb[data-route]').forEach(n=>n.classList.toggle('on', n.dataset.route===r));
+  if(window.location.hash !== '#'+r) window.location.hash = r;
+
+  // per-route mount hooks
+  if(r==='command'){ if(!state.map) buildMap(); requestAnimationFrame(()=>state.map&&state.map.resize()); }
+  if(r==='globe'){   if(!state.globe) buildGlobe(); else state.globe.resize(); renderGlobe(); }
+  if(r==='analytics') renderAnalytics();
+  if(r==='vessels')   renderVessels();
+  if(r==='marine')    renderMarine();
+  if(r==='evidence')  renderEvidenceList();
+  if(r==='data')      renderDataSources();
+  if(r==='investigator') renderInvestigator();
+  if(r==='modellab')  renderModelLab();
+  if(r==='whatif')    renderWhatif();
+  if(r==='compare')   renderCompare();
+  if(r==='graph')     renderGraph();
+  if(r==='impact')    renderImpact();
+  if(r==='alerts')    renderAlerts();
+}
+function handleRoute(){
+  const h = (window.location.hash || '#landing').slice(1);
+  setRoute(h);
+}
+window.addEventListener('hashchange', handleRoute);
+
+function wireGlobal(){
+  // Delegated (not per-element) so buttons rendered later — e.g. empty-state
+  // "Go to Command Center" CTAs — work without re-wiring on every render.
+  document.addEventListener('click', ev => {
+    const dr = ev.target.closest('[data-route]');
+    if(dr){ ev.preventDefault(); setRoute(dr.dataset.route); }
+  });
+  $$('[data-action]').forEach(x => x.addEventListener('click', ev => {
+    ev.preventDefault();
+    if(x.dataset.action==='notify') doNotify();
+    if(x.dataset.action==='help') showHelp();
+  }));
+  // Tabs (context panel)
+  $$('#context .tabs button').forEach(b=>{
+    b.addEventListener('click',()=>{
+      $$('#context .tabs button').forEach(x=>x.classList.remove('on'));
+      $$('#context .tabc').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on');
+      $('#tab-'+b.dataset.tab).classList.add('on');
+    });
+  });
+  // Command left rail
+  $('#runOne').addEventListener('click', runOne);
+  $('#runAll').addEventListener('click', runAll);
+  // Timeline
+  $('#play').addEventListener('click', ()=> state.playing ? stopPlay() : startPlay());
+  $$('.speedbtn[data-speed]').forEach(b=>b.addEventListener('click',()=>{
+    state.speed = +b.dataset.speed;
+    $$('.speedbtn[data-speed]').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+  }));
+  $('#tl').addEventListener('input', ev => { stopPlay(); setTime(+ev.target.value); });
+  // Globe controls
+  $$('[data-globespeed]').forEach(b=>b.addEventListener('click',()=>{
+    state.globeSpin = b.dataset.globespeed;
+    $$('[data-globespeed]').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    animateGlobe();
+  }));
+  const _gAis = $('#btnGlobeAis');
+  if(_gAis) _gAis.addEventListener('click', ()=>toggleLiveAis('globe'));
+  // Search
+  $('#kbar').addEventListener('input', debounce(searchBar, 250));
+  $('#kbar').addEventListener('keydown', ev => {
+    if(ev.key==='Enter'){ const first=$('.iCard'); if(first) first.click(); }
+    if(ev.key==='Escape') ev.target.blur();
+  });
+  // Global keyboard
+  document.addEventListener('keydown', ev => {
+    if(ev.target.tagName==='INPUT'||ev.target.tagName==='SELECT') return;
+    if(ev.key==='/') { ev.preventDefault(); $('#kbar').focus(); }
+    if(ev.key===' '){ ev.preventDefault(); state.playing?stopPlay():startPlay(); }
+    if(ev.key==='ArrowLeft'){ stopPlay(); setTime(Math.max(+$('#tl').min, state.T-.5)); }
+    if(ev.key==='ArrowRight'){ stopPlay(); setTime(Math.min(+$('#tl').max, state.T+.5)); }
+    if(ev.key==='g'){ setRoute('globe'); }
+    if(ev.key==='c'){ setRoute('command'); }
+    if(ev.key==='a'){ setRoute('analytics'); }
+    if(ev.key==='v'){ setRoute('vessels'); }
+    if(ev.key==='?'){ showHelp(); }
+  });
+}
+function showHelp(){
+  toast('Shortcuts: /=search  space=play/pause  ←/→=step  g=globe  c=command  a=analytics  v=vessels', 'ok');
+}
+function searchBar(){
+  const q = $('#kbar').value.trim().toLowerCase();
+  if(!q) return;
+  // Try MMSI
+  if(/^\d{6,10}$/.test(q)){
+    const s = findVessel(q);
+    if(s){ openIncident(s.incidentId); setRoute('command');
+      setTimeout(()=>{
+        const sc = $$('.suspect').find(x=>x.dataset.mmsi===q);
+        if(sc) sc.click();
+      }, 400);
+      return;
+    }
+  }
+  // Try incident id
+  const ic = state.incidents.find(i=>i.incident_id.toLowerCase().includes(q));
+  if(ic){ setRoute('command'); openIncident(ic.incident_id); return; }
+  // Try vessel name
+  for(const i of state.incidents){
+    if((i.prime_suspect?.name||'').toLowerCase().includes(q)){
+      setRoute('command'); openIncident(i.incident_id); return;
+    }
+  }
+  toast('No match for "'+q+'"');
+}
+function findVessel(mmsi){
+  for(const i of state.incidents){
+    // We only have summaries here; must fetch full incident. For quick nav
+    // just check prime suspect.
+    if(i.prime_suspect?.mmsi === mmsi) return {incidentId:i.incident_id};
+  }
+  return null;
+}
+
+/* ==========================================================================
+   MAP (command view)
+   ========================================================================== */
+function buildMap(){
+  state.map = new maplibregl.Map({
+    container:'map', style:styleFor('esri-imagery'),
+    center:[73.5,18.5], zoom:5.2, pitch:0, bearing:0,
+    attributionControl:{compact:true}, cooperativeGestures:false,
+  });
+  state.map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-right');
+  state.map.addControl(new maplibregl.ScaleControl({maxWidth:180,unit:'metric'}),'bottom-left');
+  state.map.on('mousemove', e => {
+    $('#readout').textContent =
+      `${fmt(e.lngLat.lat,4)}°N  ${fmt(e.lngLat.lng,4)}°E`;
+  });
+  state.map.on('move', ()=>{
+    $('#zoomVal').textContent = fmt(state.map.getZoom(),1);
+    $('#pitchVal').textContent = fmt(state.map.getPitch(),0);
+    $('#bearVal').textContent = fmt(state.map.getBearing(),0);
+  });
+  state.map.once('load', async ()=>{
+    await ensureBaseLayers();
+    await loadOverlaysCoastJur();
+    renderAllIncidentMarkers();
+    if(state.incidents.length && !state.activeIncident){
+      openIncident(state.incidents[0].incident_id);
+    }
+  });
+  // Wire the map tools
+  $('#basemap').addEventListener('change', async e => {
+    const c = state.map.getCenter(), z = state.map.getZoom(), p = state.map.getPitch(), b = state.map.getBearing();
+    state.map.setStyle(styleFor(e.target.value));
+    await new Promise(res => state.map.once('styledata', res));
+    await ensureBaseLayers();
+    await loadOverlaysCoastJur();
+    renderAllIncidentMarkers();
+    if(state.R) installIncidentLayers(state.R);
+    state.map.jumpTo({center:c,zoom:z,pitch:p,bearing:b});
+    setTime(state.T);
+  });
+  $('#btn3d').addEventListener('click',()=>{
+    const on = state.map.getPitch() < 15;
+    state.map.easeTo({pitch:on?55:0, bearing:on?-15:0, duration:900});
+    $('#btn3d').classList.toggle('on', on);
+  });
+  $('#btnFrame').addEventListener('click', frameSlick);
+  $('#btnVec').addEventListener('click',()=>{
+    state.vectorsOn = !state.vectorsOn;
+    $('#btnVec').classList.toggle('on', state.vectorsOn);
+    ['vec-current','vec-wind'].forEach(id=>{
+      if(state.map.getLayer(id))
+        state.map.setLayoutProperty(id,'visibility', state.vectorsOn?'visible':'none');
+    });
+    if(state.vectorsOn) refreshVectors();
+  });
+  $('#btnLiveAis').addEventListener('click', ()=>toggleLiveAis('command'));
+  $('#btnSnapAis').addEventListener('click', toggleSnapAis);
+}
+// One-shot real AIS snapshot via VesselAPI (covers Indian waters, unlike the
+// aisstream live stream). Reuses the same ship-emoji markers.
+async function toggleSnapAis(){
+  if(state.aisMode==='snapshot'){ stopLiveAis(); return; }
+  if(state.liveAis) stopLiveAis();                 // mutually exclusive with the stream
+  const m = state.map; if(!m){ toast('Open the map first'); return; }
+  state.liveMap = m; state.liveShips = {}; state.liveMarkers = {}; state.aisMode = 'snapshot';
+  const b = m.getBounds();
+  const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map(x=>x.toFixed(3)).join(',');
+  $('#btnSnapAis').classList.add('on'); $('#btnSnapAis').textContent = '⚓ loading…';
+  toast('Fetching real AIS snapshot (VesselAPI, India-covered)…');
+  try{
+    const r = await (await fetch('/api/ais/snapshot?bbox='+encodeURIComponent(bbox))).json();
+    if(r.error){ toast('AIS snapshot: '+r.error, 'err'); stopLiveAis(); return; }
+    (r.ships||[]).forEach(s=>{ state.liveShips[s.mmsi]=s; upsertShipMarker(s); });
+    $('#btnSnapAis').textContent = '⚓ AIS now ('+(r.count||0)+')';
+    toast(`Loaded ${r.count||0} real vessels`, 'ok');
+  }catch(e){ toast('AIS snapshot failed', 'err'); stopLiveAis(); }
+}
+
+/* ==========================================================================
+   LIVE AIS — real ships from aisstream via the server SSE bridge.
+   Works only where aisstream has receiver coverage (foreign/coastal waters);
+   over the Indian AOI it will stay empty — that's a data-coverage limit.
+   ========================================================================== */
+// aisstream free tier allows only ONE connection per key, so we must NOT
+// reconnect on every map move. Instead we subscribe to a box PADDED well beyond
+// the viewport and only reconnect when the view leaves that box.
+function _viewBox(m){ const b=m.getBounds();
+  return {w:b.getWest(), s:b.getSouth(), e:b.getEast(), n:b.getNorth()}; }
+function _padBox(v){ const dx=Math.max((v.e-v.w),0.2), dy=Math.max((v.n-v.s),0.2);
+  return {w:v.w-dx, s:v.s-dy, e:v.e+dx, n:v.n+dy}; }
+function _inside(v, box){ return box && v.w>=box.w && v.e<=box.e && v.s>=box.s && v.n<=box.n; }
+
+function toggleLiveAis(which){
+  const m = (which==='globe') ? state.globe : state.map;
+  if(state.aisMode==='snapshot') stopLiveAis();     // clear a snapshot first
+  if(state.liveAis){ const was=state.liveMap; stopLiveAis(); if(was!==m && m){} else return; }
+  if(!m){ toast('Open the map first'); return; }
+  state.liveShips = {}; state.liveMarkers = {}; state.aisSub = null;
+  state.liveAis = true; state.liveMap = m; state.aisMode = 'stream';
+  _aisBtns(true);
+  toast('Live AIS on — real ships stream into view (foreign/coastal waters)','ok');
+  state._aisMove = debounce(()=>{
+    if(state.liveAis && !_inside(_viewBox(state.liveMap), state.aisSub)) connectLiveAis();
+  }, 800);
+  m.on('moveend', state._aisMove);
+  connectLiveAis();
+}
+function _aisBtns(on){
+  ['#btnLiveAis','#btnGlobeAis','#btnSnapAis'].forEach(sel=>{ const b=$(sel); if(b){
+    b.classList.toggle('on', on);
+    if(!on) b.textContent = b.id==='btnSnapAis' ? '⚓ AIS now' : '◉ Live AIS';
+  }});
+}
+function _aisCount(){
+  const n = Object.keys(state.liveMarkers).length;
+  ['#btnLiveAis','#btnGlobeAis'].forEach(sel=>{ const b=$(sel); if(b && b.classList.contains('on')) b.textContent='◉ Live AIS ('+n+')'; });
+}
+function connectLiveAis(){
+  const m = state.liveMap; if(!m || !state.liveAis) return;
+  if(state.liveAisES){ state.liveAisES.close(); state.liveAisES=null; }
+  const box = _padBox(_viewBox(m));
+  state.aisSub = box;
+  pruneShipsOutside(box);
+  const bbox = [box.w, box.s, box.e, box.n].map(x=>x.toFixed(3)).join(',');
+  const es = new EventSource('/api/ais/live?bbox='+encodeURIComponent(bbox));
+  state.liveAisES = es;
+  es.addEventListener('error', ev=>{
+    try{ const d=JSON.parse(ev.data); toast('Live AIS: '+d.message,'err'); }catch(e){}
+  });
+  es.addEventListener('ship', ev=>{
+    const s = JSON.parse(ev.data);
+    state.liveShips[s.mmsi] = s;
+    upsertShipMarker(s);
+  });
+  es.onerror = ()=>{ /* browser auto-reconnects; keep markers */ };
+}
+function pruneShipsOutside(box){
+  for(const mmsi of Object.keys(state.liveMarkers)){
+    const sh = state.liveShips[mmsi];
+    if(!sh || sh.lon<box.w || sh.lon>box.e || sh.lat<box.s || sh.lat>box.n){
+      state.liveMarkers[mmsi].remove();
+      delete state.liveMarkers[mmsi];
+      delete state.liveShips[mmsi];
+    }
+  }
+  _aisCount();
+}
+const AIS_MAX_MARKERS = 600;   // cap DOM markers (globe zoomed out = firehose)
+function upsertShipMarker(s){
+  const m = state.liveMap; if(!m) return;
+  let mk = state.liveMarkers[s.mmsi];
+  const moving = (s.sog || 0) > 0.5;
+  if(!mk){
+    if(Object.keys(state.liveMarkers).length >= AIS_MAX_MARKERS) return;
+    const el = document.createElement('div');
+    el.className = 'ship-mk';
+    // 🚢 upright stays recognisable; a ▸ heading pip rotates to course-over-ground.
+    el.innerHTML = `<span class="hull">🚢</span><span class="hdg"></span>`;
+    el.title = (s.name || 'MMSI '+s.mmsi);
+    mk = new maplibregl.Marker({element: el, anchor: 'center'})
+          .setLngLat([s.lon, s.lat]).addTo(m);
+    mk._el = el;
+    state.liveMarkers[s.mmsi] = mk;
+  }
+  mk.setLngLat([s.lon, s.lat]);          // moves the ship as new pings arrive
+  const hdg = mk._el.querySelector('.hdg');
+  hdg.style.transform = `rotate(${s.cog||0}deg)`;
+  hdg.style.opacity = moving ? '1' : '0.15';
+  mk._el.title = (s.name || 'MMSI '+s.mmsi) + ` · ${(s.sog||0).toFixed(1)} kn · ${Math.round(s.cog||0)}°`;
+  _aisCount();
+}
+function stopLiveAis(){
+  state.liveAis = false;
+  if(state.liveAisES){ state.liveAisES.close(); state.liveAisES=null; }
+  if(state.liveMap && state._aisMove){ state.liveMap.off('moveend', state._aisMove); state._aisMove=null; }
+  Object.values(state.liveMarkers||{}).forEach(mk=>mk.remove());
+  state.liveMarkers = {}; state.liveShips = {}; state.aisSub = null; state.liveMap = null;
+  state.aisMode = null;
+  _aisBtns(false);
+}
+// Every incident as a dot on the command map (all detections at once, not just
+// the open one). Severity-coloured; click to open; real ones ringed.
+function renderAllIncidentMarkers(){
+  const m = state.map; if(!m) return;
+  const SEV = {CRITICAL:'#d03b3b', HIGH:'#ec835a', MEDIUM:'#fab219', LOW:'#3987e5'};
+  const fc = {type:'FeatureCollection', features:(state.incidents||[]).map(i=>({
+    type:'Feature', geometry:{type:'Point', coordinates:[i.centroid.lon, i.centroid.lat]},
+    properties:{id:i.incident_id, color:SEV[i.severity]||'#7c8996',
+                real:(i.data_mode==='REAL')?1:0}}))};
+  if(m.getSource('allinc')){ m.getSource('allinc').setData(fc); return; }
+  m.addSource('allinc', {type:'geojson', data:fc});
+  m.addLayer({id:'allinc-ring', type:'circle', source:'allinc',
+    filter:['==',['get','real'],1],
+    paint:{'circle-radius':9,'circle-color':'rgba(0,0,0,0)',
+           'circle-stroke-color':'#2ee6a6','circle-stroke-width':2}});
+  m.addLayer({id:'allinc-dot', type:'circle', source:'allinc', paint:{
+    'circle-radius':5,'circle-color':['get','color'],
+    'circle-stroke-width':1.5,'circle-stroke-color':'#0a0f16'}});
+  m.on('click','allinc-dot', e=>{
+    const id = e.features[0].properties.id;
+    if(id) openIncident(id);
+  });
+  m.on('mouseenter','allinc-dot',()=>m.getCanvas().style.cursor='pointer');
+  m.on('mouseleave','allinc-dot',()=>m.getCanvas().style.cursor='');
+}
+async function ensureBaseLayers(){
+  const m = state.map;
+  if(!m.getSource('coast')){
+    m.addSource('coast',{type:'geojson',data:emptyFC()});
+    m.addLayer({id:'coast-l',type:'line',source:'coast',
+      paint:{'line-color':'#c3ccd8','line-width':.7,'line-opacity':.35}});
+  }
+  if(!m.getSource('jur')){
+    m.addSource('jur',{type:'geojson',data:emptyFC()});
+    m.addLayer({id:'jur-fill',type:'fill',source:'jur',
+      paint:{'fill-color':['match',['get','kind'],
+        'SPECIAL_AREA','#fab219','EEZ','#3987e5','#7c8996'], 'fill-opacity':.05}});
+    m.addLayer({id:'jur-line',type:'line',source:'jur',
+      paint:{'line-color':['match',['get','kind'],
+        'SPECIAL_AREA','#fab219','EEZ','#3987e5','#7c8996'],
+        'line-width':1.2,'line-dasharray':[3,3],'line-opacity':.5}});
+  }
+  if(!m.getSource('vec')){
+    m.addSource('vec',{type:'geojson',data:emptyFC()});
+    m.addLayer({id:'vec-current',type:'line',source:'vec',
+      filter:['==',['get','kind'],'current'],
+      paint:{'line-color':'#3987e5','line-width':1.4,'line-opacity':.85}});
+    m.addLayer({id:'vec-wind',type:'line',source:'vec',
+      filter:['==',['get','kind'],'wind'],
+      paint:{'line-color':'#fab219','line-width':1.1,'line-opacity':.7}});
+    m.setLayoutProperty('vec-current','visibility','none');
+    m.setLayoutProperty('vec-wind','visibility','none');
+  }
+}
+async function loadOverlaysCoastJur(){
+  try{
+    const j = await (await fetch('/api/jurisdictions.geojson')).json();
+    state.map.getSource('jur').setData(j);
+    const c = await (await fetch('/api/coast.geojson')).json();
+    state.map.getSource('coast').setData(c);
+  }catch(e){}
+}
+async function refreshVectors(){
+  if(!state.vectorsOn || !state.R) return;
+  const b = state.R.scene.bounds;
+  const q = `south=${b[0][0]}&west=${b[0][1]}&north=${b[1][0]}&east=${b[1][1]}&t_rel_h=${state.T}&n=20`;
+  try{
+    const gj = await (await fetch('/api/environment/vectors?'+q)).json();
+    if(state.map.getSource('vec')) state.map.getSource('vec').setData(gj);
+  }catch(e){}
+}
+function installIncidentLayers(rep){
+  const m = state.map;
+  ['sar','slick','originAll','originSlice','slick-ring','ais','source','source-start',
+   'past','future','vessels','hi-track','hi-gap','patrolZ'].forEach(id=>{
+    const s = m.getSource(id); if(!s) return;
+    m.getStyle().layers.filter(L=>L.source===id).forEach(L=>m.removeLayer(L.id));
+    m.removeSource(id);
+  });
+  const iid = rep.oiltrace.incident_id;
+  const prefix = `./incidents/${iid}/`;
+  m.addSource('sar',{type:'image',url:prefix+'sar.png',coordinates:bboxFromCorners(rep.scene.bounds)});
+  m.addSource('slick',{type:'image',url:prefix+'slick.png',coordinates:bboxFromCorners(rep.scene.bounds)});
+  m.addSource('originAll',{type:'image',url:prefix+rep.origin_pdf.png,coordinates:bboxFromCorners(rep.origin_pdf.bounds)});
+  state.originSlices = (rep.origin_pdf.slices||[]).map(s=>prefix+s.png); state.activeSliceIdx=-1;
+  state.originSlices.forEach(u=>{const im=new Image(); im.src=u;});
+  m.addSource('originSlice',{type:'image',url:state.originSlices[0]||prefix+'origin.png',coordinates:bboxFromCorners(rep.origin_pdf.bounds)});
+
+  m.addLayer({id:'sar-l',type:'raster',source:'sar',paint:{'raster-opacity':.78}});
+  m.addLayer({id:'originAll-l',type:'raster',source:'originAll',paint:{'raster-opacity':.28}});
+  m.addLayer({id:'originSlice-l',type:'raster',source:'originSlice',
+    paint:{'raster-opacity':.58,'raster-fade-duration':400}});
+  m.addLayer({id:'slick-l',type:'raster',source:'slick',paint:{'raster-opacity':.85}});
+
+  const ring = (rep.detections[0].contour_lonlat||[]);
+  if(ring.length){
+    m.addSource('slick-ring',{type:'geojson',data:ringPoly(ring)});
+    m.addLayer({id:'slick-fill',type:'fill',source:'slick-ring',
+      paint:{'fill-color':'#d95926','fill-opacity':.08}});
+    m.addLayer({id:'slick-halo',type:'line',source:'slick-ring',
+      paint:{'line-color':'#000','line-width':7,'line-opacity':.55,'line-blur':3}});
+    m.addLayer({id:'slick-outline',type:'line',source:'slick-ring',
+      paint:{'line-color':'#d95926','line-width':2.5}});
+  }
+  m.addSource('ais',{type:'geojson',data:{type:'FeatureCollection',
+    features: rep.vessels.map(v=>({type:'Feature',
+      properties:{mmsi:v.mmsi,name:v.name,type:v.type},
+      geometry:{type:'LineString',coordinates:v.track.map(p=>[p[0],p[1]])}}))}});
+  m.addLayer({id:'ais-l',type:'line',source:'ais',
+    paint:{'line-color':'#3987e5','line-width':1.2,'line-opacity':.32}});
+
+  const st = rep.source.track.map(p=>[p.lon,p.lat]);
+  m.addSource('source',{type:'geojson',data:{type:'Feature',properties:{},
+    geometry:{type:'LineString',coordinates:st}}});
+  m.addLayer({id:'source-halo',type:'line',source:'source',
+    paint:{'line-color':'#000','line-width':7,'line-opacity':.55,'line-blur':2}});
+  m.addLayer({id:'source-l',type:'line',source:'source',
+    paint:{'line-color':'#199e70','line-width':3,'line-dasharray':[2,1.5]}});
+  m.addSource('source-start',{type:'geojson',data:{type:'Feature',
+    properties:{label:`Release start · ${fmt(rep.source.t_start/3600,1)} h before acquisition`},
+    geometry:{type:'Point',coordinates:st[0]}}});
+  m.addLayer({id:'source-start-l',type:'circle',source:'source-start',
+    paint:{'circle-radius':7,'circle-color':'#199e70','circle-stroke-width':2,'circle-stroke-color':'#052015'}});
+
+  m.addSource('past',{type:'geojson',data:emptyFC()});
+  m.addSource('future',{type:'geojson',data:emptyFC()});
+  m.addLayer({id:'past-l',type:'circle',source:'past',
+    paint:{'circle-radius':['interpolate',['linear'],['zoom'],7,1.4,12,2.8],
+      'circle-color':'#d95926','circle-opacity':.55,'circle-blur':.3}});
+  m.addLayer({id:'future-l',type:'circle',source:'future',
+    paint:{'circle-radius':['interpolate',['linear'],['zoom'],7,1.4,12,2.8],
+      'circle-color':'#3987e5','circle-opacity':.55,'circle-blur':.3}});
+
+  m.addSource('vessels',{type:'geojson',data:emptyFC()});
+  m.addLayer({id:'vessel-shadow',type:'circle',source:'vessels',
+    paint:{'circle-radius':11,'circle-color':'#000','circle-opacity':.55,'circle-blur':.6}});
+  m.addLayer({id:'vessel-body',type:'circle',source:'vessels',
+    paint:{'circle-radius':['interpolate',['linear'],['zoom'],7,4,12,7],
+      'circle-color':['get','color'],
+      'circle-stroke-width':1.4,'circle-stroke-color':'#0d0d0d',
+      'circle-opacity':['get','opacity']}});
+
+  // patrol zones
+  m.addSource('patrolZ',{type:'geojson',data:{type:'FeatureCollection',
+    features:(rep.oiltrace.patrol||[]).map(t=>circleGeoJSON(t))}});
+  m.addLayer({id:'patrolZ-fill',type:'fill',source:'patrolZ',
+    paint:{'fill-color':['match',['get','priority'],'P1','#d03b3b','P2','#ec835a','#3987e5'],
+      'fill-opacity':.06}});
+  m.addLayer({id:'patrolZ-line',type:'line',source:'patrolZ',
+    paint:{'line-color':['match',['get','priority'],'P1','#d03b3b','P2','#ec835a','#3987e5'],
+      'line-width':1.4,'line-dasharray':[2,3]}});
+
+  const popup = new maplibregl.Popup({closeButton:false,closeOnClick:false,offset:12});
+  const enter = e => {
+    m.getCanvas().style.cursor='pointer';
+    const f=e.features[0], p=f.properties||{};
+    popup.setLngLat(e.lngLat).setHTML(
+      p.mmsi ? `<b>${p.name}</b><br>MMSI ${p.mmsi} · ${p.type||''}` :
+      p.name ? `<b>${p.name}</b>` : p.label||'').addTo(m);
+  };
+  const leave = ()=>{ m.getCanvas().style.cursor=''; popup.remove(); };
+  ['ais-l','vessel-body','source-l','source-start-l','slick-outline','jur-fill','patrolZ-line'].forEach(id=>{
+    if(!m.getLayer(id)) return;
+    m.on('mouseenter',id,enter); m.on('mouseleave',id,leave);
+  });
+  m.on('click','vessel-body', e => {
+    const mmsi = e.features[0].properties.mmsi;
+    const cards = $$('.suspect');
+    const c = cards.find(x=>x.dataset.mmsi===mmsi);
+    if(c) c.click();
+  });
+}
+function circleGeoJSON(t){
+  const n=48, out=[], R=6371;
+  const lat=t.lat*Math.PI/180, lon=t.lon*Math.PI/180;
+  for(let i=0;i<=n;i++){
+    const th=2*Math.PI*i/n, r=t.radius_km/R;
+    const la=Math.asin(Math.sin(lat)*Math.cos(r)+Math.cos(lat)*Math.sin(r)*Math.cos(th));
+    const lo=lon+Math.atan2(Math.sin(th)*Math.sin(r)*Math.cos(lat),Math.cos(r)-Math.sin(lat)*Math.sin(la));
+    out.push([lo*180/Math.PI, la*180/Math.PI]);
+  }
+  return {type:'Feature',
+    properties:{priority:t.priority,name:t.action+': '+t.target},
+    geometry:{type:'Polygon',coordinates:[out]}};
+}
+function frameSlick(){
+  if(!state.R || !state.map) return;
+  const b = state.R.scene.bounds;
+  state.map.fitBounds([[b[0][1],b[0][0]],[b[1][1],b[1][0]]],
+    {padding:{top:80,bottom:130,left:30,right:30},duration:900});
+}
+
+/* ==========================================================================
+   DRIFT ANIMATION
+   ========================================================================== */
+function drawParticles(t){
+  if(!state.R||!state.map||!state.map.getSource('past')) return;
+  const set = t<=0 ? state.R.hindcast : state.R.forecast;
+  let a=set[0], b=set[0], best=1e9, best2=1e9;
+  for(const s of set){
+    const d = Math.abs(s.t_rel_h - t);
+    if(d<best){best2=best;b=a;best=d;a=s;} else if(d<best2){best2=d;b=s;}
+  }
+  const span=(a.t_rel_h-b.t_rel_h)||1, f=Math.max(0,Math.min(1,(t-b.t_rel_h)/span));
+  const n = Math.min(a.points.length, b.points.length);
+  const feats = new Array(n);
+  for(let i=0;i<n;i++){
+    const p=a.points[i], q=b.points[i];
+    feats[i]={type:'Feature',properties:{},
+      geometry:{type:'Point',coordinates:[q[0]+(p[0]-q[0])*f, q[1]+(p[1]-q[1])*f]}};
+  }
+  const src = t<=0 ? state.map.getSource('past') : state.map.getSource('future');
+  const other = t<=0 ? state.map.getSource('future') : state.map.getSource('past');
+  src.setData({type:'FeatureCollection',features:feats});
+  other.setData(emptyFC());
+}
+function posAt(track,t){
+  if(!track.length||t<track[0][2]||t>track[track.length-1][2]) return null;
+  for(let i=1;i<track.length;i++){
+    const a=track[i-1], b=track[i];
+    if(t>=a[2]&&t<=b[2]){
+      const s=(b[2]-a[2])||1, f=(t-a[2])/s;
+      return {lat:a[1]+f*(b[1]-a[1]),lon:a[0]+f*(b[0]-a[0]),
+              cog:Math.atan2(b[0]-a[0],b[1]-a[1])*180/Math.PI};
+    }
+  }
+  return null;
+}
+function drawVessels(t){
+  if(!state.R||!state.map||!state.map.getSource('vessels')) return;
+  const rank = new Map(state.R.suspects.map(s=>[s.mmsi,s]));
+  const feats = [];
+  for(const v of state.R.vessels){
+    const p = posAt(v.track, t*3600); if(!p) continue;
+    const s = rank.get(v.mmsi);
+    const dark = (v.gaps||[]).some(g => t*3600>=g[0] && t*3600<=g[1]);
+    const hex = s ? risk(s.score).hex : '#3987e5';
+    feats.push({type:'Feature',
+      properties:{mmsi:v.mmsi, name:v.name, type:v.type,
+        color:dark?'#898781':hex, opacity:dark?.55:1},
+      geometry:{type:'Point',coordinates:[p.lon,p.lat]}});
+  }
+  state.map.getSource('vessels').setData({type:'FeatureCollection',features:feats});
+}
+function swapOriginSlice(t){
+  if(!state.R||!state.map||!state.map.getSource('originSlice')) return;
+  let want = -1;
+  if(t<0 && state.R.origin_pdf.slices){
+    state.R.origin_pdf.slices.forEach((s,i)=>{
+      if(t<=s.t_from_h+1e-6 && t>=s.t_to_h-1e-6) want=i;
+    });
+  }
+  if(want !== state.activeSliceIdx){
+    state.activeSliceIdx = want;
+    state.map.getSource('originSlice').updateImage({
+      url: want>=0 ? state.originSlices[want] : `./incidents/${state.R.oiltrace.incident_id}/origin.png`,
+      coordinates:bboxFromCorners(state.R.origin_pdf.bounds)});
+    state.map.setPaintProperty('originSlice-l','raster-opacity', want>=0 ? .58 : 0);
+  }
+}
+function setTime(t){
+  state.T = t;
+  const sl = $('#tl'); if(+sl.value !== t) sl.value = t;
+  drawParticles(t); drawVessels(t); swapOriginSlice(t);
+  if(state.vectorsOn) refreshVectors();
+  if(state.R){
+    const d = new Date(state.epochMs + t*3600e3);
+    const hh = String(d.getUTCHours()).padStart(2,'0');
+    const mm = String(d.getUTCMinutes()).padStart(2,'0');
+    $('#clock').innerHTML =
+      `${hh}:${mm}<small>${d.toISOString().slice(0,10)} UTC · ${t<0?fmt(t,1):'+'+fmt(t,1)} h</small>`;
+  }
+}
+function renderTicks(tmin,tmax,src){
+  const ticks = $('#ticks'); ticks.innerHTML='';
+  for(let h=Math.ceil(tmin); h<=tmax; h+=6){
+    const pct = (h-tmin)/(tmax-tmin)*100;
+    ticks.append(el(`<span style="left:${pct}%" class="${h===0?'now':''}">${
+      h===0?'ACQ':(h<0?h+'h':'+'+h+'h')}</span>`));
+  }
+  if(src){
+    const rs = src.t_start/3600, re = (src.t_start+src.duration)/3600;
+    const pc = x => (x-tmin)/(tmax-tmin)*100;
+    ticks.append(el(`<span style="left:${pc(rs)}%;top:11px;color:#199e70;
+      border-left:2px solid #199e70;padding-left:4px;transform:none">release ${
+      fmt(rs,1)}→${fmt(re,1)} h</span>`));
+  }
+}
+function startPlay(){
+  state.playing = true; state.lastFrame = performance.now();
+  const b = $('#play'); b.textContent = '❚❚'; b.classList.add('playing');
+  const sl = $('#tl');
+  if(state.T >= +sl.max - .01) setTime(+sl.min);
+  requestAnimationFrame(step);
+}
+function stopPlay(){
+  state.playing = false;
+  const b = $('#play'); b.textContent = '▶'; b.classList.remove('playing');
+}
+function step(now){
+  if(!state.playing) return;
+  const sl = $('#tl');
+  const dt = (now - state.lastFrame)/1000; state.lastFrame = now;
+  let t = state.T + dt*state.speed;
+  if(t >= +sl.max){ setTime(+sl.max); stopPlay(); return; }
+  setTime(t);
+  requestAnimationFrame(step);
+}
+
+/* ==========================================================================
+   OPEN INCIDENT
+   ========================================================================== */
+async function openIncident(iid){
+  state.activeIncident = iid;
+  $$('.iCard').forEach(c => c.classList.toggle('active', c.dataset.id===iid));
+  const j = await (await fetch('/api/incidents/'+iid)).json();
+  state.R = j.report;
+  state.epochMs = Date.parse(state.R.generated_for+'Z');
+  if(state.map){
+    installIncidentLayers(state.R);
+    const tmin = Math.floor(Math.min(...state.R.hindcast.map(s=>s.t_rel_h)));
+    const tmax = Math.ceil(Math.max(...state.R.forecast.map(s=>s.t_rel_h)));
+    $('#tl').min = tmin; $('#tl').max = tmax;
+    renderTicks(tmin, tmax, state.R.source);
+    setTime(Math.max(tmin, state.R.source.t_start/3600));
+    frameSlick();
+  }
+  renderContextPanel(state.R);
+}
+
+/* ==========================================================================
+   CONTEXT PANEL
+   ========================================================================== */
+function bars(terms){
+  return TERMS.map(([k,label])=>{
+    const v = Math.max(0, Math.min(1, terms[k] ?? 0));
+    return `<div class="bar"><span>${label}</span>
+      <span class="track"><span class="fill" style="width:${(v*100).toFixed(0)}%"></span></span>
+      <span class="n">${v.toFixed(2)}</span></div>`;
+  }).join('');
+}
+function renderContextPanel(rep){
+  const d = rep.detections[0], c = rep.characterization, v = rep.validation, o = rep.oiltrace;
+
+  // Reflect the open incident's data mode in the top bar badge.
+  const _md = $('#modeBadge');
+  if(_md){
+    if(o.data_mode==='REAL'){ _md.textContent='REAL DATA'; _md.className='simband mode-live'; }
+    else { _md.textContent='SIMULATION'; _md.className='simband'; }
+  }
+  // ---- Overview
+  const T1 = $('#tab-overview'); T1.innerHTML = '';
+  T1.append(el(`<div style="margin-bottom:6px">
+    <div style="font-size:14px;font-weight:700;color:var(--ink)">${o.incident_id}</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">${o.scenario.name}</div>
+    <div style="font-size:11px;color:${o.data_mode==='REAL'?'var(--good)':'var(--warning)'};margin-top:2px">${o.data_mode||'SIMULATION'} · ${rep.generated_for} UTC · ${fmt(rep.scene.mean_wind_ms,1)} m/s wind</div>
+  </div>`));
+  T1.append(el(`<h2 class="section">Slick</h2>`));
+  T1.append(el(`<div class="tiles">
+    <div class="tile"><div class="k">Area</div><div class="v">${fmt(d.area_km2,1)}<span class="u"> km²</span></div></div>
+    <div class="tile"><div class="k">Extent</div><div class="v">${fmt(d.length_km,1)}<span class="u"> × ${fmt(d.width_km,1)} km</span></div></div>
+    <div class="tile"><div class="k">P(oil)</div><div class="v">${fmt(d.p_oil,3)}</div></div>
+    <div class="tile"><div class="k">Est. age</div><div class="v">${fmt(c.age_best_h,1)}<span class="u"> h</span></div></div>
+  </div>`));
+  T1.append(el(`<div class="card">
+    <div class="kv"><span>Bonn appearance</span><b style="text-transform:capitalize">${c.bonn_class}</b></div>
+    <div class="kv"><span>Thickness</span><b>${(c.thickness_m*1e6).toFixed(1)} µm</b></div>
+    <div class="kv"><span>Volume</span><b>${fmt(c.volume_m3,0)} m³ · ${fmt(c.tonnes,0)} t</b></div>
+    <div class="kv"><span>Age confidence</span><b>${c.confidence} (×${fmt(c.age_uncertainty_factor,1)})</b></div>
+  </div>`));
+  T1.append(el(`<h2 class="section">Jurisdiction</h2>`));
+  T1.append(el(`<div class="card">
+    <div class="kv"><span>Area</span><b>${o.jurisdiction.name}</b></div>
+    <div class="kv"><span>Sovereign</span><b>${o.jurisdiction.sovereign||'—'}</b></div>
+    <div class="kv"><span>MARPOL regime</span><b class="${o.jurisdiction.marpol_regime==='special_area'?'warn':''}">${o.jurisdiction.marpol_regime}</b></div>
+    <div class="kv"><span>Nearest coast</span><b>${fmt(o.nearest_coast.km,0)} km · ${o.nearest_coast.name}</b></div>
+  </div>`));
+  T1.append(el(`<h2 class="section">Reconstructed origin</h2>`));
+  T1.append(el(`<div class="card">
+    <div class="kv"><span>Release start</span><b>${fmt(rep.source.t_start/3600,1)} h before acq</b></div>
+    <div class="kv"><span>Duration</span><b>${fmt(rep.source.duration/3600,1)} h</b></div>
+    <div class="kv"><span>Course / speed</span><b>${fmt(rep.source.course_deg,0)}° · ${fmt(rep.source.speed_kn,1)} kn</b></div>
+    <div class="kv"><span>Inversion IoU</span><b>${fmt(rep.source.iou,3)}</b></div>
+    <div class="kv"><span title="dispersion of near-optimal solutions — a search diagnostic, not a calibrated error bar">Search dispersion</span><b>${fmt(rep.source.search_dispersion.position_sd_km,1)} km · ${fmt(rep.source.search_dispersion.t_start_sd_h,1)} h</b></div>
+  </div>`));
+  if(v && Number.isFinite(v?.segmentation?.iou)){
+    T1.append(el(`<h2 class="section">Self-validation</h2>`));
+    T1.append(el(`<div class="card">
+      <div class="kv"><span>Segmentation IoU / F1</span><b>${fmt(v.segmentation.iou,3)} / ${fmt(v.segmentation.f1,3)}</b></div>
+      <div class="kv"><span>Origin position error</span><b>${fmt(v.inversion_error_km,2)} km</b></div>
+      <div class="kv"><span>Release time error</span><b>${fmt(v.inversion_time_error_h*60,0)} min</b></div>
+      <div class="kv"><span>Attribution</span><b class="${v.attribution_correct?'good':'crit'}">${v.attribution_correct?'correct':'incorrect'}</b></div>
+    </div>`));
+  }
+
+  // ---- Suspects
+  const T2 = $('#tab-suspects'); T2.innerHTML = '';
+  T2.append(el(`<div class="legend">
+    <span><i style="background:#3987e5"></i>AIS</span>
+    <span><i style="background:#d95926"></i>slick</span>
+    <span><i style="background:#199e70"></i>inverted source</span>
+    <span><i style="background:#d03b3b"></i>prime suspect</span>
+    <span><i style="background:#898781"></i>AIS dark</span></div>`));
+  rep.suspects.slice(0,6).forEach((s,i)=>{
+    const k = risk(s.score);
+    const card = el(`<div class="card suspect ${i===0?'active':''}" data-mmsi="${s.mmsi}">
+      <div class="rank ${i===0?'top':''}">${i+1}</div>
+      <div class="srow"><span><span class="nm">${s.name}</span><span class="mm"> · MMSI ${s.mmsi}</span></span>
+        <span class="score">${s.score.toFixed(2)}</span></div>
+      <div class="srow" style="margin-top:4px"><span class="mm">${s.type_name} · ${fmt(s.length,0)} m</span>
+        <span class="chip ${k.c}">${k.label}</span></div>
+      ${bars(s.terms)}
+      <ul class="ev">${s.evidence.map(e=>`<li>${e}</li>`).join('')}</ul>
+    </div>`);
+    card.addEventListener('click',()=>{
+      $$('.suspect').forEach(x=>x.classList.remove('active'));
+      card.classList.add('active');
+      highlightSuspectOnMap(s);
+    });
+    T2.append(card);
+  });
+
+  // ---- Alerts
+  const T3 = $('#tab-alerts'); T3.innerHTML = '';
+  if(!o.alerts?.length){ T3.append(el('<div style="color:var(--muted);font-size:11.5px">No alerts triggered.</div>')); }
+  (o.alerts||[]).forEach(a=>{
+    T3.append(el(`<div class="alert al-${a.severity}">
+      <div class="t">■ ${a.severity} · ${a.kind}</div>
+      <div class="h">${a.title}</div>
+      <div class="m">${a.message}</div></div>`));
+  });
+
+  // ---- Patrol
+  const T4 = $('#tab-patrol'); T4.innerHTML = '';
+  T4.append(el(`<p style="font-size:10.5px;color:var(--muted);margin:0 0 8px;line-height:1.55">
+    Decision-support tasking. Not tactical guidance — dispatch, boarding and
+    use of force remain under human authority.</p>`));
+  (o.patrol||[]).forEach(t=>{
+    T4.append(el(`<div class="patrol">
+      <div class="hd"><span class="p${t.priority[1]}">● ${t.priority} · ${t.action}</span>
+        <span>${t.asset_class}</span></div>
+      <div class="tg">${t.target}</div>
+      <div class="rs">${t.reason}</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:5px">
+        ${fmt(t.lat,3)}, ${fmt(t.lon,3)} · r=${fmt(t.radius_km,0)} km · ${t.eta_hint}
+      </div></div>`));
+  });
+
+  // ---- Timeline
+  const T5 = $('#tab-timeline'); T5.innerHTML = '';
+  fetch('/api/incidents/'+o.incident_id+'/timeline').then(r=>r.json()).then(tl=>{
+    T5.append(el('<h2 class="section">Incident timeline</h2>'));
+    const clist = el('<div class="card" style="padding:0"></div>');
+    (tl.events||[]).forEach(ev=>{
+      const th = ev.t_rel_h;
+      const cls = {acquisition:'#0ca30c',release_start:'#ec835a',release_end:'#ec835a',
+        ais_gap_open:'#d03b3b',ais_gap_close:'#fab219',classified:'#3987e5',
+        attributed:'#3987e5'}[ev.kind] || '#7c8996';
+      clist.append(el(`<div style="padding:9px 12px;border-bottom:1px solid var(--grid);display:flex;gap:10px;align-items:baseline">
+        <span style="min-width:52px;font-variant-numeric:tabular-nums;font-size:11px;color:var(--muted)">${th<0?fmt(th,1):'+'+fmt(th,1)}h</span>
+        <span style="width:8px;height:8px;border-radius:50%;background:${cls};display:inline-block;flex:none;margin-top:5px;box-shadow:0 0 4px ${cls}"></span>
+        <span style="font-size:11.5px;color:var(--ink);flex:1;line-height:1.5">${ev.label}</span></div>`));
+    });
+    T5.append(clist);
+    T5.append(el('<p style="font-size:10.5px;color:var(--muted);margin:8px 0 0;line-height:1.55">Times relative to SAR acquisition. Negative = before, positive = after.</p>'));
+  });
+
+  // ---- Evidence
+  const T6 = $('#tab-evidence'); T6.innerHTML = '';
+  T6.append(el(`<h2 class="section">Evidence package</h2>`));
+  T6.append(el(`<div class="card">
+    <p style="font-size:11.5px;color:var(--ink-2);margin:0 0 8px;line-height:1.55">
+      Traceable investigation dossier for ${o.incident_id}. Every claim links to its model version
+      and dataset via the provenance chain.
+    </p>
+    <div id="downloadBtns">
+      <a href="./incidents/${o.incident_id}/${o.evidence_pack.json}" download>${ICO_JSON} JSON</a>
+      <a href="./incidents/${o.incident_id}/${o.evidence_pack.geojson}" download>${ICO_GEO} GeoJSON</a>
+      <a href="./incidents/${o.incident_id}/${o.evidence_pack.csv}" download>${ICO_CSV} Suspects CSV</a>
+      <a href="/api/incidents/${o.incident_id}/evidence.pdf" download>${ICO_PDF} PDF report</a>
+      <a href="#" id="notifyBtn" style="border-color:var(--warning);color:var(--warning)">${ICO_RADIO} Notify channels</a>
+    </div></div>`));
+  setTimeout(()=>{
+    const nb = document.getElementById('notifyBtn'); if(!nb) return;
+    nb.addEventListener('click', async ev=>{
+      ev.preventDefault();
+      try{
+        const r = await (await fetch('/api/incidents/'+o.incident_id+'/notify', {method:'POST'})).json();
+        const lines = (r.dispatched||[]).map(x=>x.channels.map(c=>c[0]+': '+c[1]).join(' · ')).join('\n');
+        toast(lines || 'No channels configured — set SLACK_WEBHOOK_URL or SMTP_HOST', 'ok');
+      }catch(e){ toast('Dispatch failed', 'err'); }
+    });
+  }, 50);
+  T6.append(el(`<h2 class="section">Provenance chain</h2>`));
+  const prov = el(`<div class="card"></div>`);
+  o.provenance.chain.forEach((line,i)=>{
+    prov.append(el(`<div class="kv"><span>Step ${i+1}</span>
+      <b style="font-weight:400;font-size:10.5px;color:var(--ink-2);text-align:left;flex:1">${line}</b></div>`));
+  });
+  T6.append(prov);
+  T6.append(el(`<h2 class="section">Model versions</h2>`));
+  const mv = el(`<div class="card"></div>`);
+  Object.entries(o.provenance.model_versions).forEach(([k,v])=>{
+    mv.append(el(`<div class="kv"><span>${k}</span><b style="font-weight:400;font-size:10.5px">${v}</b></div>`));
+  });
+  T6.append(mv);
+}
+
+function highlightSuspectOnMap(s){
+  if(!state.map) return;
+  const m = state.map;
+  const v = state.R.vessels.find(x=>x.mmsi===s.mmsi);
+  const trackCoords = (v?.track||[]).map(p=>[p[0],p[1]]);
+  const gapLines = (v?.gaps||[]).map(g=>{
+    const a = posAt(v.track,g[0]), b = posAt(v.track,g[1]);
+    return a&&b ? {type:'Feature',
+      properties:{label:`AIS dark · ${fmt((g[1]-g[0])/60,0)} min`},
+      geometry:{type:'LineString',coordinates:[[a.lon,a.lat],[b.lon,b.lat]]}} : null;
+  }).filter(Boolean);
+  if(!m.getSource('hi-track')){
+    m.addSource('hi-track',{type:'geojson',data:emptyFC()});
+    m.addSource('hi-gap',{type:'geojson',data:emptyFC()});
+    m.addLayer({id:'hi-halo',type:'line',source:'hi-track',
+      paint:{'line-color':'#000','line-width':7,'line-opacity':.55,'line-blur':2}});
+    m.addLayer({id:'hi-line',type:'line',source:'hi-track',
+      paint:{'line-color':'#fab219','line-width':3,'line-opacity':.95}});
+    m.addLayer({id:'hi-gap-l',type:'line',source:'hi-gap',
+      paint:{'line-color':'#d03b3b','line-width':3.5,'line-dasharray':[1.5,2.5]}});
+  }
+  m.getSource('hi-track').setData({type:'Feature',properties:{},
+    geometry:{type:'LineString',coordinates:trackCoords}});
+  m.getSource('hi-gap').setData({type:'FeatureCollection',features:gapLines});
+  if(trackCoords.length){
+    const lngs=trackCoords.map(p=>p[0]), lats=trackCoords.map(p=>p[1]);
+    m.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],
+      {padding:{top:80,bottom:130,left:30,right:30}, duration:800, maxZoom:12});
+  }
+}
+
+/* ==========================================================================
+   PIPELINE RUN (SSE)
+   ========================================================================== */
+function setStage(idx, text){
+  $('#stagebar span').style.width = ((idx/STAGES.length)*100)+'%';
+  $('#stagetext').textContent = text;
+}
+async function runOne(){
+  const btn = $('#runOne');
+  btn.classList.add('busy'); btn.textContent='running…';
+  const slug = $('#scenario').value;
+  const es = new EventSource(`/api/analysis/run/stream?scenario=${encodeURIComponent(slug)}`);
+  STAGES.forEach(n=>{
+    es.addEventListener(n, ()=>{const i=STAGES.indexOf(n);setStage(i, STAGE_LABELS[n]+' …');});
+  });
+  es.addEventListener('incident', async ev=>{
+    es.close();
+    setStage(STAGES.length,'complete');
+    btn.classList.remove('busy'); btn.textContent='▶ Run pipeline';
+    await loadIncidents();
+    const inc = JSON.parse(ev.data);
+    openIncident(inc.incident_id);
+    toast(inc.incident_id + ' — pipeline complete', 'ok');
+    setTimeout(()=>setStage(0,'idle'), 1500);
+  });
+  es.addEventListener('error', ()=>{
+    es.close(); btn.classList.remove('busy'); btn.textContent='▶ Run pipeline';
+    setStage(0,'stream lost'); toast('Pipeline stream lost', 'err');
+  });
+}
+async function runAll(){
+  const btn = $('#runAll'); btn.disabled=true; btn.textContent='running every scenario…';
+  const es = new EventSource('/api/replay/start');
+  let curName='';
+  es.addEventListener('scenario_start', ev=>{
+    const d = JSON.parse(ev.data);
+    curName = d.name; setStage(0, `[${d.index+1}/${d.total}] ${d.name}`);
+  });
+  STAGES.forEach(n=>{
+    es.addEventListener(n, ()=>{const i=STAGES.indexOf(n);setStage(i,`${curName}: ${STAGE_LABELS[n]}…`);});
+  });
+  es.addEventListener('scenario_done', async ()=>{ await loadIncidents(); });
+  es.addEventListener('replay_done', ()=>{
+    es.close(); btn.disabled=false; btn.textContent='▶▶ Run all scenarios';
+    setStage(STAGES.length,'replay complete');
+    toast('All scenarios processed', 'ok');
+    setTimeout(()=>setStage(0,'idle'),2000);
+  });
+  es.addEventListener('error',()=>{es.close(); btn.disabled=false;
+    btn.textContent='▶▶ Run all scenarios';});
+}
+
+async function doNotify(){
+  if(!state.activeIncident){ toast('Open an incident first'); return; }
+  try{
+    const r = await (await fetch('/api/incidents/'+state.activeIncident+'/notify', {method:'POST'})).json();
+    const lines = (r.dispatched||[]).map(x=>x.channels.map(c=>c[0]+': '+c[1]).join(' · ')).join('\n');
+    toast(lines || 'No channels configured — set SLACK_WEBHOOK_URL or SMTP_HOST', 'ok');
+  }catch(e){ toast('Notify failed', 'err'); }
+}
+
+/* ==========================================================================
+   GLOBE VIEW
+   ========================================================================== */
+function buildGlobe(){
+  state.globe = new maplibregl.Map({
+    container:'globe', style:styleFor('esri-imagery'),
+    center:[75,15], zoom:2.2, pitch:0, bearing:0,
+    attributionControl:{compact:true}, projection:'globe',
+  });
+  state.globe.addControl(new maplibregl.NavigationControl({visualizePitch:false}),'top-right');
+  state.globe.once('load', async ()=>{
+    // Ocean-blue sky for the globe
+    try{
+      state.globe.setSky({
+        'sky-color':'#02121f', 'horizon-color':'#0a3653',
+        'fog-color':'#0e2438', 'sky-horizon-blend':.5, 'horizon-fog-blend':.5
+      });
+    }catch(e){}
+    // Coast + jurisdictions
+    const c = await (await fetch('/api/coast.geojson')).json();
+    state.globe.addSource('gcoast',{type:'geojson',data:c});
+    state.globe.addLayer({id:'gcoast-l',type:'line',source:'gcoast',
+      paint:{'line-color':'#c3ccd8','line-width':.8,'line-opacity':.4}});
+    const j = await (await fetch('/api/jurisdictions.geojson')).json();
+    state.globe.addSource('gjur',{type:'geojson',data:j});
+    state.globe.addLayer({id:'gjur-fill',type:'fill',source:'gjur',
+      paint:{'fill-color':['match',['get','kind'],'SPECIAL_AREA','#fab219','EEZ','#3987e5','#7c8996'],'fill-opacity':.06}});
+    state.globe.addLayer({id:'gjur-line',type:'line',source:'gjur',
+      paint:{'line-color':['match',['get','kind'],'SPECIAL_AREA','#fab219','EEZ','#3987e5','#7c8996'],
+        'line-width':1.2,'line-dasharray':[3,3]}});
+    // incident pins
+    state.globe.addSource('gincidents',{type:'geojson',data:emptyFC()});
+    state.globe.addLayer({id:'gincidents-glow',type:'circle',source:'gincidents',
+      paint:{'circle-radius':['interpolate',['linear'],['get','area'],10,10,300,26],
+        'circle-color':['match',['get','severity'],'CRITICAL','#d03b3b','HIGH','#ec835a','MEDIUM','#fab219','#7c8996'],
+        'circle-opacity':.35,'circle-blur':.6}});
+    state.globe.addLayer({id:'gincidents-l',type:'circle',source:'gincidents',
+      paint:{'circle-radius':['interpolate',['linear'],['get','area'],10,4,300,11],
+        'circle-color':['match',['get','severity'],'CRITICAL','#d03b3b','HIGH','#ec835a','MEDIUM','#fab219','#7c8996'],
+        'circle-stroke-color':'#fff','circle-stroke-width':1}});
+    state.globe.on('mouseenter','gincidents-l', e=>{
+      state.globe.getCanvas().style.cursor='pointer';
+      const p = e.features[0].properties;
+      new maplibregl.Popup({closeButton:false,offset:10})
+        .setLngLat(e.lngLat).setHTML(
+          `<b>${p.id}</b><br>${p.subtitle}<br>${p.area} km² · ${p.severity}`)
+        .addTo(state.globe);
+    });
+    state.globe.on('mouseleave','gincidents-l',()=>state.globe.getCanvas().style.cursor='');
+    state.globe.on('click','gincidents-l', e=>{
+      const id = e.features[0].properties.id;
+      setRoute('command');
+      setTimeout(()=>openIncident(id), 400);
+    });
+    renderGlobe();
+    animateGlobe();
+  });
+}
+function renderGlobe(){
+  if(!state.globe || !state.globe.isStyleLoaded()) return;
+  const src = state.globe.getSource('gincidents'); if(!src) return;
+  const feats = state.incidents.map(i => ({type:'Feature',
+    properties:{id:i.incident_id, subtitle:i.scenario.subtitle,
+      area:i.area_km2, severity:i.severity},
+    geometry:{type:'Point',coordinates:[i.centroid.lon, i.centroid.lat]}}));
+  src.setData({type:'FeatureCollection',features:feats});
+  $('#globeCount').textContent = state.incidents.length;
+}
+function animateGlobe(){
+  cancelAnimationFrame(state.globeAnimId);
+  if(!state.globe || state.globeSpin==='pause') return;
+  const rate = state.globeSpin==='fast' ? 0.5 : 0.08;
+  const spin = () => {
+    if(!state.globe || state.globeSpin==='pause') return;
+    const c = state.globe.getCenter();
+    state.globe.setCenter([c.lng + rate, c.lat]);
+    state.globeAnimId = requestAnimationFrame(spin);
+  };
+  spin();
+}
+
+/* ==========================================================================
+   ANALYTICS
+   ========================================================================== */
+async function renderAnalytics(){
+  const body = $('#analyticsBody');
+  body.innerHTML = skeletonTiles(4) + skeletonRows(5);
+  try{
+    const a = await (await fetch('/api/analytics/overview')).json();
+    if(a.empty){ body.innerHTML = emptyState('No incidents yet', {icon:'chart', sub:'Run a scenario from the Command Center to populate fleet-wide analytics.'}); return; }
+    body.innerHTML='';
+    body.append(el(`<div class="dash-grid">
+      <div class="dash-tile"><div class="k">Active incidents</div><div class="v">${a.incidents}</div></div>
+      <div class="dash-tile ${a.mean_p_oil>.9?'calm':''}"><div class="k">Mean P(oil)</div><div class="v">${fmt(a.mean_p_oil,3)}</div></div>
+      <div class="dash-tile hot"><div class="k">Candidate vessels</div><div class="v">${a.candidate_vessels}</div></div>
+      <div class="dash-tile"><div class="k">Attribution accuracy</div><div class="v">${fmt(a.attribution_correct_rate*100,0)}<span class="u">%</span></div></div>
+      <div class="dash-tile"><div class="k">Mean slick area</div><div class="v">${fmt(a.mean_area_km2,1)}<span class="u"> km²</span></div></div>
+      <div class="dash-tile"><div class="k">Mean origin error</div><div class="v">${fmt(a.avg_inversion_error_km,2)}<span class="u"> km</span></div></div>
+      <div class="dash-tile warm"><div class="k">Critical alerts</div><div class="v">${state.incidents.filter(i=>i.severity==='CRITICAL').length}</div></div>
+      <div class="dash-tile"><div class="k">Data mode</div><div class="v" style="font-size:20px">SIMULATION</div></div>
+    </div>`));
+    // charts row
+    body.append(el(`<div class="dash-row">
+      <div class="dash-panel">
+        <h3>Incidents by severity</h3>
+        <div class="chart" id="chartSev"></div></div>
+      <div class="dash-panel">
+        <h3>Incidents by jurisdiction</h3>
+        <div class="chart" id="chartJur"></div></div>
+    </div>`));
+    // top suspects table
+    body.append(el(`<div class="plate">
+      <h3>Top suspects across all incidents</h3>
+      <table class="table" id="topSusTable"></table></div>`));
+
+    drawBarChart('#chartSev', Object.entries(a.by_severity||{}),
+      {CRITICAL:'#d03b3b',HIGH:'#ec835a',MEDIUM:'#fab219',LOW:'#3987e5',INFO:'#7c8996'});
+    drawBarChart('#chartJur', Object.entries(a.by_jurisdiction||{}).map(([k,v])=>[k.replace(/^MARPOL.*—\s*/,''),v]),
+      {default:'#3987e5'});
+    // top suspects
+    const rows = [];
+    for(const i of state.incidents){
+      if(i.prime_suspect) rows.push({...i.prime_suspect, incident:i.incident_id});
+    }
+    rows.sort((a,b)=>b.score-a.score);
+    const t = $('#topSusTable');
+    t.innerHTML = '<thead><tr><th>Vessel</th><th>MMSI</th><th>Incident</th><th>Score</th></tr></thead><tbody>' +
+      rows.map(r=>`<tr><td class="name">${r.name}</td><td>${r.mmsi}</td><td>${r.incident}</td><td><b style="color:${risk(r.score).hex}">${r.score.toFixed(2)}</b></td></tr>`).join('') + '</tbody>';
+  }catch(e){
+    body.innerHTML = emptyState('Analytics unavailable', {icon:'ghost', sub:'The overview endpoint didn\'t respond — try reloading.', cta:null});
+  }
+}
+function drawBarChart(sel, data, palette){
+  const box = $(sel); box.innerHTML = '';
+  if(!data.length){ box.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No data</div>'; return; }
+  const max = Math.max(...data.map(d=>d[1])) || 1;
+  box.innerHTML = data.map(([label,val])=>{
+    const col = palette[label] || palette.default || '#3987e5';
+    const pct = Math.max(3, (val/max)*100).toFixed(1);
+    return `<div class="hbar">
+      <span class="lbl" title="${label}">${label}</span>
+      <span class="track"><span class="fill" style="width:${pct}%;background:${col}"></span></span>
+      <span class="n">${val}</span>
+    </div>`;
+  }).join('');
+}
+
+/* ==========================================================================
+   VESSELS
+   ========================================================================== */
+async function renderVessels(){
+  const body = $('#vesselsBody');
+  body.innerHTML = skeletonRows(8);
+  const rows = [];
+  for(const i of state.incidents){
+    try{
+      const r = await (await fetch('/api/incidents/'+i.incident_id+'/candidates')).json();
+      (r.candidates||[]).forEach(s => rows.push({...s, incident:i.incident_id, subtitle:i.scenario.subtitle}));
+    }catch(e){}
+  }
+  rows.sort((a,b)=>b.score-a.score);
+  body.innerHTML = '';
+  body.append(el(`<div class="plate"><h3>All ranked candidates (${rows.length})</h3>
+    <table class="table"><thead>
+    <tr><th>Vessel</th><th>MMSI</th><th>Type</th><th>Length</th>
+    <th>Source</th><th>Envelope</th><th>Behaviour</th><th>Gap</th><th>Prior</th><th>Score</th><th>Incident</th></tr></thead>
+    <tbody>${rows.map(s=>{
+      const t=s.terms||{};
+      return `<tr>
+        <td class="name">${s.name}</td>
+        <td>${s.mmsi}</td>
+        <td>${s.type_name}</td>
+        <td>${fmt(s.length,0)} m</td>
+        <td>${fmt(t.source_match||0,2)}</td>
+        <td>${fmt(t.spatiotemporal||0,2)}</td>
+        <td>${fmt(t.behaviour||0,2)}</td>
+        <td>${fmt(t.dark||0,2)}</td>
+        <td>${fmt(t.prior||0,2)}</td>
+        <td><b style="color:${risk(s.score).hex}">${s.score.toFixed(2)}</b></td>
+        <td><a href="#command" data-openinc="${s.incident}">${s.incident}</a></td>
+      </tr>`;}).join('')}</tbody></table></div>`));
+  $$('[data-openinc]').forEach(a=>a.addEventListener('click',ev=>{
+    ev.preventDefault(); setRoute('command'); openIncident(a.dataset.openinc);
+  }));
+}
+
+/* ==========================================================================
+   MARINE
+   ========================================================================== */
+function renderMarine(){
+  const body = $('#marineBody');
+  const rep = state.R;
+  if(!rep){ body.innerHTML = emptyState('No incident selected', {sub:'Open one from the Command Center to see its metocean state.'}); return; }
+  const c = rep.characterization;
+  body.innerHTML = '';
+  body.append(el(`<div class="plate">
+    <h3>Environment at slick centroid — ${rep.oiltrace.incident_id}</h3>
+    <div class="gauges">
+      <div class="gauge"><div class="k">Wind speed</div><div class="v">${fmt(rep.scene.mean_wind_ms,1)}<span class="u"> m/s</span></div>
+        ${sparkline(20, i=>Math.sin(i/3)*0.4+rep.scene.mean_wind_ms,'#fab219')}</div>
+      <div class="gauge"><div class="k">Estimated slick age</div><div class="v">${fmt(c.age_best_h,1)}<span class="u"> h</span></div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:4px">confidence ${c.confidence} (×${fmt(c.age_uncertainty_factor,1)})</div></div>
+      <div class="gauge"><div class="k">Bonn appearance</div><div class="v" style="font-size:18px;text-transform:capitalize">${c.bonn_class}</div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:4px">${(c.thickness_m*1e6).toFixed(1)} µm nominal</div></div>
+      <div class="gauge"><div class="k">Volume estimate</div><div class="v">${fmt(c.volume_m3,0)}<span class="u"> m³</span></div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:4px">${fmt(c.tonnes,0)} t · ${fmt(c.volume_lo_m3,0)}–${fmt(c.volume_hi_m3,0)} m³ range</div></div>
+      <div class="gauge"><div class="k">Slick extent</div><div class="v">${fmt(rep.detections[0].length_km,1)}<span class="u"> × ${fmt(rep.detections[0].width_km,1)} km</span></div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:4px">orientation ${fmt(rep.detections[0].orientation_deg,0)}°</div></div>
+      <div class="gauge"><div class="k">Nearest coast</div><div class="v">${fmt(rep.oiltrace.nearest_coast.km,0)}<span class="u"> km</span></div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:4px">→ ${rep.oiltrace.nearest_coast.name}</div></div>
+    </div>
+  </div>`));
+
+  body.append(el(`<div class="plate">
+    <h3>Age fusion — three independent estimators</h3>
+    <table class="table">
+      <thead><tr><th>Estimator</th><th>Result</th><th>Physical basis</th></tr></thead>
+      <tbody>
+        <tr><td>Advective age</td><td>${fmtAge(c.age_estimates_s?.advective_s)}</td><td>Slick length ÷ local drift speed. Best for fresh, ship-track-shaped discharges.</td></tr>
+        <tr><td>Fay spreading</td><td>${fmtAge(c.age_estimates_s?.fay_s)}</td><td>Inverts gravity-viscous spreading given estimated volume.</td></tr>
+        <tr><td>Weathering</td><td>${fmtAge(c.age_estimates_s?.weathering_s)}</td><td>Contrast decay under wind-driven evaporation and dispersion.</td></tr>
+        <tr><td><b>Fused (log-mean)</b></td><td><b>${fmt(c.age_best_h,2)} h</b></td><td>Log-space mean; disagreement = uncertainty factor ×${fmt(c.age_uncertainty_factor,1)}.</td></tr>
+      </tbody></table>
+  </div>`));
+}
+function sparkline(n, fn, color){
+  const w=200, h=40, vals=Array.from({length:n},(_,i)=>fn(i));
+  const min = Math.min(...vals), max = Math.max(...vals), span = max-min || 1;
+  const pts = vals.map((v,i)=>`${(i/(n-1))*w},${h-((v-min)/span)*(h-4)-2}`).join(' ');
+  return `<svg width="100%" height="40" viewBox="0 0 ${w} ${h}"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5"/></svg>`;
+}
+
+/* ==========================================================================
+   EVIDENCE LIST
+   ========================================================================== */
+function renderEvidenceList(){
+  const body = $('#evidenceBody');
+  body.innerHTML = '';
+  if(!state.incidents.length){ body.innerHTML = emptyState('No incidents yet', {icon:'inbox', sub:'Run a scenario from the Command Center to generate an evidence pack.'}); return; }
+  state.incidents.forEach(i=>{
+    body.append(el(`<div class="plate">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div>
+          <div style="font-size:14px;font-weight:700">${i.incident_id}</div>
+          <div style="font-size:11.5px;color:var(--muted);margin-top:2px">${i.scenario.name} — ${i.scenario.subtitle}</div>
+        </div>
+        <span class="chip ${i.severity.toLowerCase()}">${i.severity}</span>
+      </div>
+      <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px" id="downloadBtns">
+        <a href="/api/incidents/${i.incident_id}/evidence.pdf" download>${ICO_PDF} PDF report</a>
+        <a href="/api/incidents/${i.incident_id}/evidence" target="_blank">${ICO_JSON} JSON dossier</a>
+        <a href="#" class="openInc" data-id="${i.incident_id}">${ICO_MAP} Open on map</a>
+      </div>
+    </div>`));
+  });
+  $$('.openInc').forEach(a=>a.addEventListener('click',ev=>{
+    ev.preventDefault(); setRoute('command'); openIncident(a.dataset.id);
+  }));
+}
+
+/* ==========================================================================
+   DATA SOURCES
+   ========================================================================== */
+function renderDataSources(){
+  const body = $('#dataBody');
+  body.innerHTML = '';
+  const catNames = {satellite:'Satellite Imagery', ocean:'Oceanography',
+    weather:'Meteorology', ais:'AIS Vessel Data', gis:'GIS & Boundaries'};
+  const grouped = {};
+  state.sources.forEach(s=>{
+    (grouped[s.category] = grouped[s.category] || []).push(s);
+  });
+  for(const cat of Object.keys(catNames)){
+    if(!grouped[cat]) continue;
+    body.append(el(`<div class="plate">
+      <h3>${catNames[cat]}</h3>
+      <div class="srcgrid">
+        ${grouped[cat].map(s=>`<div class="srccard">
+          <div class="top"><span class="name">${s.name}</span>
+            <span class="status-pill ${s.status.toLowerCase()}">${s.status}</span></div>
+          <div class="desc">Tier: <b>${s.tier}</b>${s.auth_required?' · auth required':''}</div>
+          <div class="row">
+            <span>${s.latency_hint}</span>
+            <a href="${s.endpoint}" target="_blank" rel="noopener" style="color:var(--brand-2);font-size:10.5px">endpoint ↗</a></div>
+          ${s.fallback ? `<div class="row" style="color:var(--faint);font-size:10px">fallback: ${s.fallback}</div>` : ''}
+        </div>`).join('')}
+      </div></div>`));
+  }
+}
+
+
+/* ==========================================================================
+   AI INVESTIGATOR — spec §45-46
+   ========================================================================== */
+async function renderInvestigator(){
+  const body = $('#investigatorBody'); body.innerHTML = '';
+  if(!state.R){ body.innerHTML = emptyState('No incident selected', {sub:'Open one from the Command Center to see this.'}); return; }
+  body.append(el(`<div class="plate" style="max-width:820px;margin:0 auto 12px">
+    <div style="font-size:11px;color:var(--muted);letter-spacing:.09em">ACTIVE INCIDENT</div>
+    <div style="font-size:14px;font-weight:700;margin-top:2px">${state.R.oiltrace.incident_id} — ${state.R.oiltrace.scenario.subtitle}</div>
+  </div>`));
+  const chat = el('<div class="chat" id="chatBox"></div>');
+  body.append(chat);
+  chat.append(el(`<div class="msg a">
+    <b>OILTRACE Investigator</b><br>
+    Ask about this incident — who, where, when, why, how, confidence, or next steps.
+    I answer from the fields in the report and cite the source of every claim.</div>`));
+  const suggest = el(`<div class="chat-suggest">
+    <button>Who is the suspect?</button>
+    <button>Where is the spill?</button>
+    <button>When was it released?</button>
+    <button>Why this vessel?</button>
+    <button>How confident are you?</button>
+    <button>What should we do next?</button>
+  </div>`);
+  body.append(suggest);
+  const form = el(`<form class="chat-form"><input placeholder="Ask a question about this incident…" required><button>Ask</button></form>`);
+  body.append(form);
+  suggest.querySelectorAll('button').forEach(b=>b.addEventListener('click',ev=>{
+    ev.preventDefault();
+    form.querySelector('input').value = b.textContent;
+    form.dispatchEvent(new Event('submit', {cancelable:true}));
+  }));
+  form.addEventListener('submit', async ev=>{
+    ev.preventDefault();
+    const q = form.querySelector('input').value.trim();
+    if(!q) return;
+    form.querySelector('input').value = '';
+    chat.append(el(`<div class="msg q">${q}</div>`));
+    chat.scrollIntoView({behavior:'smooth', block:'end'});
+    try{
+      const r = await (await fetch(`/api/investigator?iid=${state.R.oiltrace.incident_id}&q=${encodeURIComponent(q)}`)).json();
+      const cite = r.citations?.length ? `<div class="cite">cites: ${r.citations.join(' · ')}</div>` : '';
+      chat.append(el(`<div class="msg a">${r.answer}${cite}</div>`));
+      chat.lastChild.scrollIntoView({behavior:'smooth', block:'end'});
+    }catch(e){ chat.append(el('<div class="msg a" style="color:var(--critical)">Investigator error</div>')); }
+  });
+}
+
+/* ==========================================================================
+   MODEL LAB — spec §47-48
+   ========================================================================== */
+const LAB_KEYS = [
+  ['source_match','Source-track match', 3.2, 0, 6],
+  ['spatiotemporal','Origin envelope', 2.4, 0, 6],
+  ['behaviour','Behavioural anomaly', 1.6, 0, 6],
+  ['dark','AIS gap', 1.2, 0, 6],
+  ['alignment','Axis alignment', 1.0, 0, 6],
+  ['prior','Vessel prior', 0.7, 0, 6],
+];
+async function renderModelLab(){
+  const body = $('#modellabBody'); body.innerHTML = '';
+  if(!state.R){ body.innerHTML = emptyState('No incident selected', {sub:'Open one from the Command Center to see this.'}); return; }
+  const iid = state.R.oiltrace.incident_id;
+  const original = state.R.suspects.map((s,i)=>({...s, orig_rank:i+1}));
+  body.append(el(`<div class="lab-grid" id="lab-grid">
+    <div class="lab-controls">
+      <h3 style="font-size:11px;letter-spacing:.1em;margin:0 0 12px;color:var(--muted);text-transform:uppercase;font-weight:600">Attribution weights</h3>
+      <div id="labSliders"></div>
+      <button class="lab-reset" id="labReset">Reset to production defaults</button>
+    </div>
+    <div class="lab-out">
+      <h3 style="font-size:11px;letter-spacing:.1em;margin:0 0 12px;color:var(--muted);text-transform:uppercase;font-weight:600">Live ranking — ${iid}</h3>
+      <div id="labRanking"></div>
+    </div>
+  </div>`));
+  const sl = $('#labSliders');
+  const state_ = {};
+  LAB_KEYS.forEach(([k,label,d,lo,hi])=>{
+    state_[k] = d;
+    const row = el(`<div class="lab-slider">
+      <div class="row"><span>${label}</span><b data-k="${k}">${d.toFixed(2)}</b></div>
+      <input type="range" min="${lo}" max="${hi}" step="0.05" value="${d}" data-key="${k}">
+    </div>`);
+    sl.append(row);
+    row.querySelector('input').addEventListener('input', debounce(async ev=>{
+      state_[k] = +ev.target.value;
+      row.querySelector(`b[data-k="${k}"]`).textContent = state_[k].toFixed(2);
+      await rescoreAndRender(iid, state_, original);
+    }, 120));
+  });
+  $('#labReset').addEventListener('click', async ()=>{
+    LAB_KEYS.forEach(([k,,d])=>{
+      state_[k]=d;
+      const inp = sl.querySelector(`input[data-key="${k}"]`); if(inp) inp.value=d;
+      const b = sl.querySelector(`b[data-k="${k}"]`); if(b) b.textContent=d.toFixed(2);
+    });
+    await rescoreAndRender(iid, state_, original);
+  });
+  await rescoreAndRender(iid, state_, original);
+}
+async function rescoreAndRender(iid, weights, original){
+  const q = Object.entries(weights).map(([k,v])=>`${k}=${v}`).join('&');
+  const r = await (await fetch(`/api/incidents/${iid}/rescore?${q}`, {method:'POST'})).json();
+  const box = $('#labRanking'); if(!box) return;
+  box.innerHTML = '';
+  const origPos = new Map(original.map((s,i)=>[s.mmsi,i+1]));
+  r.candidates.slice(0,10).forEach((s,i)=>{
+    const orig = origPos.get(s.mmsi) || (i+1);
+    const delta = orig - (i+1);
+    const dclass = delta>0 ? 'up' : (delta<0 ? 'down' : '');
+    const dtxt = delta===0 ? '—' : (delta>0 ? `↑${delta}` : `↓${-delta}`);
+    box.append(el(`<div class="rankrow">
+      <div class="idx ${i===0?'top':''}">${i+1}</div>
+      <div><div style="font-weight:600">${s.name}</div>
+        <div style="font-size:10.5px;color:var(--muted)">MMSI ${s.mmsi} · ${s.type_name}</div></div>
+      <div class="delta ${dclass}">${dtxt}</div>
+      <div style="text-align:right"><b style="color:${risk(s.score).hex};font-size:16px;font-variant-numeric:tabular-nums">${s.score.toFixed(2)}</b></div>
+    </div>`));
+  });
+}
+
+/* ==========================================================================
+   WHAT-IF — spec §33-34
+   ========================================================================== */
+async function renderWhatif(){
+  const body = $('#whatifBody'); body.innerHTML = '';
+  if(!state.R){ body.innerHTML = emptyState('No incident selected', {sub:'Open one from the Command Center to see this.'}); return; }
+  const iid = state.R.oiltrace.incident_id;
+  const baseSrc = state.R.source;
+  body.append(el(`<div class="plate">
+    <h3>Perturb the metocean forcing</h3>
+    <p style="font-size:11.5px;color:var(--ink-2);line-height:1.55;margin:0 0 14px">
+      Adjust the wind- and current-scaling factors below, then re-invert the
+      source. The counterfactual answers the question <i>"if these conditions
+      had been ${'\u00b1'}20% off, where would the source track have landed?"</i>
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-2);margin-bottom:4px">
+          <span>Wind scale</span><b id="wLbl" style="color:var(--brand-2);font-variant-numeric:tabular-nums">1.00×</b></div>
+        <input type="range" id="wSlider" min="0.4" max="1.8" step="0.05" value="1" style="width:100%;accent-color:var(--brand)">
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-2);margin-bottom:4px">
+          <span>Current scale</span><b id="cLbl" style="color:var(--brand-2);font-variant-numeric:tabular-nums">1.00×</b></div>
+        <input type="range" id="cSlider" min="0.4" max="1.8" step="0.05" value="1" style="width:100%;accent-color:var(--brand)">
+      </div>
+    </div>
+    <button id="wRun" style="margin-top:14px;background:var(--brand);color:#fff;border:0;padding:8px 18px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Re-invert</button>
+    <span id="wBusy" style="margin-left:12px;color:var(--muted);font-size:11.5px"></span>
+  </div>
+  <div class="whatif-grid">
+    <div class="whatif-panel">
+      <h4>Baseline (from incident)</h4>
+      <div class="kv"><span>Release start</span><b>${fmt(baseSrc.t_start/3600,1)} h before acq</b></div>
+      <div class="kv"><span>Duration</span><b>${fmt(baseSrc.duration/3600,2)} h</b></div>
+      <div class="kv"><span>Course / speed</span><b>${fmt(baseSrc.course_deg,0)}° · ${fmt(baseSrc.speed_kn,1)} kn</b></div>
+      <div class="kv"><span>Start position</span><b>${fmt(baseSrc.start_lat,3)}, ${fmt(baseSrc.start_lon,3)}</b></div>
+      <div class="kv"><span>Fit IoU</span><b>${fmt(baseSrc.iou,3)}</b></div>
+    </div>
+    <div class="whatif-panel" id="whatifResult">
+      <h4>Perturbed hypothesis</h4>
+      <div style="color:var(--muted);font-size:12px">Adjust the sliders and press <b>Re-invert</b>.</div>
+    </div>
+  </div>`));
+  const wSlider=$('#wSlider'), cSlider=$('#cSlider');
+  wSlider.addEventListener('input',()=>$('#wLbl').textContent=(+wSlider.value).toFixed(2)+'×');
+  cSlider.addEventListener('input',()=>$('#cLbl').textContent=(+cSlider.value).toFixed(2)+'×');
+  $('#wRun').addEventListener('click', async ()=>{
+    $('#wBusy').textContent='running inversion…';
+    try{
+      const r = await (await fetch(`/api/incidents/${iid}/whatif?wind=${wSlider.value}&current=${cSlider.value}`,
+        {method:'POST'})).json();
+      const dLat = r.start_lat - baseSrc.start_lat;
+      const dLon = r.start_lon - baseSrc.start_lon;
+      const km = Math.sqrt((dLat*111)**2 + (dLon*111*Math.cos(baseSrc.start_lat*Math.PI/180))**2);
+      const dT = r.t_start_h - baseSrc.t_start/3600;
+      const dC = ((r.course_deg - baseSrc.course_deg + 180) % 360) - 180;
+      const panel = $('#whatifResult');
+      panel.innerHTML = `<h4>Perturbed hypothesis (wind ×${(+wSlider.value).toFixed(2)}, current ×${(+cSlider.value).toFixed(2)})</h4>
+        <div class="kv"><span>Release start</span><b>${fmt(r.t_start_h,1)} h before acq <span style="color:var(--brand-2);font-size:10.5px">(Δ ${dT>=0?'+':''}${fmt(dT,1)} h)</span></b></div>
+        <div class="kv"><span>Duration</span><b>${fmt(r.duration_h,2)} h</b></div>
+        <div class="kv"><span>Course / speed</span><b>${fmt(r.course_deg,0)}° · ${fmt(r.speed_kn,1)} kn <span style="color:var(--brand-2);font-size:10.5px">(Δ ${dC>=0?'+':''}${fmt(dC,0)}°)</span></b></div>
+        <div class="kv"><span>Start position</span><b>${fmt(r.start_lat,3)}, ${fmt(r.start_lon,3)}</b></div>
+        <div class="kv"><span>Distance from baseline</span><b style="color:${km>5?'var(--warning)':'var(--good)'}">${fmt(km,1)} km</b></div>
+        <div class="kv"><span>Fit IoU</span><b>${fmt(r.iou,3)}</b></div>
+        <p style="font-size:10.5px;color:var(--muted);margin:10px 0 0;line-height:1.5">
+          If this perturbation drifts the origin by more than a few km without a matching
+          drop in IoU, treat the baseline source track as poorly identified.
+        </p>`;
+      $('#wBusy').textContent='';
+    }catch(e){ $('#wBusy').textContent='error'; toast('What-if failed', 'err'); }
+  });
+}
+
+/* ==========================================================================
+   COMPARE — spec §35
+   ========================================================================== */
+function renderCompare(){
+  const body = $('#compareBody'); body.innerHTML = '';
+  if(!state.R){ body.innerHTML = emptyState('No incident selected', {sub:'Open one from the Command Center to see this.'}); return; }
+  const s = state.R.suspects;
+  if(s.length < 2){ body.innerHTML = emptyState('Not enough candidates', {icon:'ghost', sub:'This incident has fewer than 2 ranked vessels to compare.', cta:null}); return; }
+  const opts = s.map((x,i)=>`<option value="${i}">#${i+1} · ${x.name} (${x.score.toFixed(2)})</option>`).join('');
+  body.append(el(`<div class="cmp-grid">
+    <div class="cmp-col cmp-picker">
+      <h3 style="font-size:11px;letter-spacing:.1em;margin:0 0 10px;color:var(--muted);text-transform:uppercase;font-weight:600">Choose two vessels</h3>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Vessel A</div>
+      <select id="cmpA">${opts}</select>
+      <div style="font-size:11px;color:var(--muted);margin:10px 0 4px">Vessel B</div>
+      <select id="cmpB">${opts}</select>
+      <p style="margin:14px 0 0;font-size:10.5px;color:var(--muted);line-height:1.5">
+        The visible gap between two candidates is the case for or against attribution.
+        A vessel is a lead only insofar as it distinguishes itself from its neighbours.
+      </p>
+    </div>
+    <div class="cmp-col" id="cmpAout"></div>
+    <div class="cmp-col" id="cmpBout"></div>
+  </div>`));
+  const a = $('#cmpA'), b = $('#cmpB'); b.value = '1';
+  function render(){
+    fillCmp('#cmpAout', s[+a.value]);
+    fillCmp('#cmpBout', s[+b.value]);
+  }
+  a.addEventListener('change', render); b.addEventListener('change', render);
+  render();
+}
+function fillCmp(sel, s){
+  const box = $(sel);
+  const k = risk(s.score);
+  box.innerHTML = `<div style="font-size:14px;font-weight:700;margin-bottom:2px">${s.name}</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">MMSI ${s.mmsi} · ${s.type_name} · ${fmt(s.length,0)} m</div>
+    <div style="font-size:28px;font-weight:800;color:${k.hex};margin-bottom:2px">${s.score.toFixed(2)}</div>
+    <div style="font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:${k.hex};margin-bottom:14px">${k.label}</div>
+    ${TERMS.map(([tk,label])=>{
+      const v = Math.max(0, Math.min(1, s.terms[tk]||0));
+      return `<div style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-bottom:2px">
+          <span>${label}</span><span style="font-variant-numeric:tabular-nums">${v.toFixed(2)}</span></div>
+        <div style="height:5px;background:var(--grid);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${(v*100).toFixed(0)}%;background:${k.hex};border-radius:3px"></div></div></div>`;
+    }).join('')}
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--grid);font-size:10.5px;color:var(--muted);letter-spacing:.09em;text-transform:uppercase;margin-bottom:6px">Evidence</div>
+    <ul class="ev">${s.evidence.map(e=>`<li>${e}</li>`).join('')}</ul>`;
+}
+
+/* ==========================================================================
+   EVIDENCE GRAPH — spec §36
+   ========================================================================== */
+function renderGraph(){
+  const body = $('#graphBody'); body.innerHTML = '';
+  if(!state.R){ body.innerHTML = emptyState('No incident selected', {sub:'Open one from the Command Center to see this.'}); return; }
+  const R = state.R, o = R.oiltrace;
+  body.append(el(`<div class="plate">
+    <svg id="graphSvg" viewBox="0 0 1200 600"></svg>
+    <div class="graph-legend">
+      <span><i class="swatch" style="background:#d95926"></i>Slick</span>
+      <span><i class="swatch" style="background:#199e70"></i>Inverted source</span>
+      <span><i class="swatch" style="background:#d03b3b"></i>Prime suspect</span>
+      <span><i class="swatch" style="background:#ec835a"></i>POI</span>
+      <span><i class="swatch" style="background:#3987e5"></i>Evidence term</span>
+      <span><i class="swatch" style="background:#fab219"></i>Alert</span>
+    </div>
+  </div>`));
+  const svg = $('#graphSvg');
+  const W = 1200, H = 600, cx = W/2, cy = H/2;
+  const nodes = [];
+  const links = [];
+  // central slick
+  nodes.push({id:'slick', x:cx, y:cy, r:34, color:'#d95926',
+    label:`Slick\n${fmt(R.detections[0].area_km2,0)} km²`});
+  // source
+  nodes.push({id:'source', x:cx-220, y:cy, r:24, color:'#199e70',
+    label:`Source\n${fmt(R.source.t_start/3600,1)} h back`});
+  links.push({a:'source',b:'slick', label:'inverted', w:2});
+  // suspects (top 5)
+  const susp = R.suspects.slice(0,5);
+  susp.forEach((s,i)=>{
+    const angle = -Math.PI/2 + (i/(susp.length-1||1))*Math.PI;
+    const rr = 250;
+    const nid = 'v_'+s.mmsi;
+    nodes.push({id:nid, x:cx+Math.cos(angle)*rr, y:cy+Math.sin(angle)*rr,
+      r:14+s.score*18, color:risk(s.score).hex,
+      label:`${s.name}\n${s.score.toFixed(2)}`, mmsi:s.mmsi});
+    links.push({a:nid,b:'source', label:'', w:1+s.score*3});
+  });
+  // Evidence terms — one node per non-zero term of the top suspect
+  const top = susp[0];
+  if(top){
+    // Spread strictly across the left semicircle (90°-270°, half-step offset so
+    // no node ever lands due north/south of the slick — that's what previously
+    // put an evidence-term node right on top of the slick's own label).
+    TERMS.forEach(([k,label], i)=>{
+      const v = top.terms[k]||0;
+      if(v < 0.05) return;
+      const angle = Math.PI/2 + (i+0.5)*(Math.PI/TERMS.length);
+      const rr = 190;
+      const nid = 't_'+k;
+      nodes.push({id:nid, x:cx+Math.cos(angle)*rr, y:cy+Math.sin(angle)*rr,
+        r:10+v*16, color:'#3987e5', label:label+'\n'+v.toFixed(2)});
+      links.push({a:'v_'+top.mmsi, b:nid, label:'', w:0.8+v*2});
+    });
+  }
+  // Alerts (top 3)
+  (o.alerts||[]).slice(0,3).forEach((a,i)=>{
+    const nid = 'a_'+i;
+    nodes.push({id:nid, x:cx+300, y:cy-100+i*80, r:14, color:'#fab219',
+      label:a.kind.replace('_','\n')});
+    links.push({a:'slick', b:nid, label:'', w:1});
+  });
+  // Draw links first
+  const linkSvg = links.map(L=>{
+    const A = nodes.find(n=>n.id===L.a), B = nodes.find(n=>n.id===L.b);
+    return `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" stroke="rgba(196,204,216,.25)" stroke-width="${L.w}"/>`;
+  }).join('');
+  const nodeSvg = nodes.map(n=>{
+    const lines = n.label.split('\n');
+    return `<g class="graph-node" data-mmsi="${n.mmsi||''}">
+      <circle cx="${n.x}" cy="${n.y}" r="${n.r+3}" fill="${n.color}" opacity="0.25"/>
+      <circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.color}" stroke="#0d0d0d" stroke-width="1.5" style="cursor:pointer"/>
+      ${lines.map((l,i)=>`<text x="${n.x}" y="${n.y+n.r+18+i*13}" fill="#f4f7fb" font-size="11" text-anchor="middle" font-family="system-ui" font-weight="${i===0?600:400}">${l}</text>`).join('')}
+    </g>`;
+  }).join('');
+  svg.innerHTML = linkSvg + nodeSvg;
+}
+
+/* ==========================================================================
+   IMPACT — spec §43
+   ========================================================================== */
+async function renderImpact(){
+  const body = $('#impactBody'); body.innerHTML = '';
+  if(!state.R){ body.innerHTML = emptyState('No incident selected', {sub:'Open one from the Command Center to see this.'}); return; }
+  const iid = state.R.oiltrace.incident_id;
+  body.append(el(`<div class="plate">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h3 style="font-size:11.5px;letter-spacing:.1em;margin:0;color:var(--muted);text-transform:uppercase;font-weight:600">Landfall probability over forecast horizon</h3>
+      <div style="font-size:11px;color:var(--muted)">Threshold: <select id="impactKm" style="background:var(--surface-2);color:var(--ink);border:1px solid var(--rule);border-radius:4px;padding:3px 6px;font-size:11px">
+        <option value="15">15 km</option><option value="30" selected>30 km</option>
+        <option value="50">50 km</option><option value="100">100 km</option></select></div>
+    </div>
+    <svg id="impactSvg" viewBox="0 0 900 280"></svg>
+    <p style="font-size:10.5px;color:var(--muted);margin:10px 0 0;line-height:1.5">
+      Fraction of forward-drifted parcels within the coastal-alert threshold of any shoreline vertex,
+      per half-hour snapshot. Trends up → coastal response chain should be mobilising.
+    </p>
+  </div>`));
+  const draw = async ()=>{
+    const nk = $('#impactKm').value;
+    const r = await (await fetch(`/api/incidents/${iid}/impact?near_km=${nk}`)).json();
+    const svg = $('#impactSvg');
+    if(!r.series.length){ svg.innerHTML = '<text x="450" y="140" fill="var(--muted)" text-anchor="middle">no data</text>'; return; }
+    const w=900, h=280, pad=40;
+    const xs = r.series.map(s=>s.t_rel_h);
+    const xmin = Math.min(...xs), xmax = Math.max(...xs);
+    const X = t => pad + (t-xmin)/(xmax-xmin) * (w-pad*2);
+    const Y = f => h-pad - f*(h-pad*2);
+    // area under curve
+    const pts = r.series.map(s=>`${X(s.t_rel_h)},${Y(s.landfall_frac)}`);
+    const area = `M${X(xs[0])},${Y(0)} L${pts.join(' L')} L${X(xs[xs.length-1])},${Y(0)} Z`;
+    // secondary line: mean distance
+    const dmax = Math.max(...r.series.map(s=>s.mean_dist_km));
+    const D = d => h-pad - (d/dmax)*(h-pad*2);
+    // <polyline points="..."> takes plain coordinate pairs, not path "L" commands
+    const dline = r.series.map(s=>`${X(s.t_rel_h)},${D(s.mean_dist_km)}`).join(' ');
+    // ticks
+    const xt = [];
+    for(let t=Math.ceil(xmin); t<=xmax; t+=6){
+      xt.push(`<line x1="${X(t)}" y1="${h-pad}" x2="${X(t)}" y2="${h-pad+5}" stroke="var(--muted)"/><text x="${X(t)}" y="${h-pad+18}" fill="var(--muted)" font-size="10.5" text-anchor="middle">+${t}h</text>`);
+    }
+    const yt = [0,.25,.5,.75,1].map(f=>`<line x1="${pad}" y1="${Y(f)}" x2="${w-pad}" y2="${Y(f)}" stroke="var(--grid)" stroke-dasharray="2,3"/><text x="${pad-6}" y="${Y(f)+4}" fill="var(--muted)" font-size="10.5" text-anchor="end">${(f*100).toFixed(0)}%</text>`).join('');
+    svg.innerHTML = `${yt}
+      <path d="${area}" fill="rgba(208,59,59,.25)" stroke="#d03b3b" stroke-width="2"/>
+      <polyline points="${dline}" fill="none" stroke="#3987e5" stroke-width="1.5" stroke-dasharray="3,3"/>
+      ${xt.join('')}
+      <text x="${w-pad}" y="20" text-anchor="end" fill="#d03b3b" font-size="11" font-weight="600">landfall %</text>
+      <text x="${w-pad}" y="36" text-anchor="end" fill="#3987e5" font-size="11" font-weight="600">mean distance</text>`;
+  };
+  $('#impactKm').addEventListener('change', draw);
+  draw();
+}
+
+/* ==========================================================================
+   ALERT FEED — spec §54
+   ========================================================================== */
+async function renderAlerts(){
+  const body = $('#alertsBody'); body.innerHTML = skeletonRows(6);
+  try{
+    const r = await (await fetch('/api/alerts')).json();
+    if(!r.alerts.length){
+      body.innerHTML = emptyState('No alerts', {icon:'inbox', sub:'Alerts appear here once a scenario has run.', cta:null});
+      return;
+    }
+    body.innerHTML = '';
+    body.append(el(`<div style="color:var(--muted);font-size:11.5px;margin-bottom:10px">${r.total} alerts across ${new Set(r.alerts.map(a=>a.incident_id)).size} incidents.</div>`));
+    const feed = el('<div class="feed"></div>');
+    r.alerts.forEach(a=>{
+      const row = el(`<div class="feed-row">
+        <div class="sev ${a.severity}">■ ${a.severity}</div>
+        <div class="body">
+          <div><b>${a.title}</b> <span style="color:var(--muted);font-size:10px;letter-spacing:.06em">· ${a.kind}</span></div>
+          <div class="m">${a.message}</div></div>
+        <div class="who">${a.incident_id}</div>
+      </div>`);
+      row.addEventListener('click',()=>{ setRoute('command'); openIncident(a.incident_id); });
+      feed.append(row);
+    });
+    body.append(feed);
+    const crit = r.alerts.filter(a=>a.severity==='CRITICAL').length;
+    $('#bellDot').style.display = crit ? 'block' : 'none';
+  }catch(e){ body.innerHTML = '<div class="plate" style="color:var(--critical)">Alert feed unavailable.</div>'; }
+}
+
+/* ==========================================================================
+   GO
+   ========================================================================== */
+// Poll alerts once on boot for the notification dot
+(async ()=>{ try{
+  const r = await (await fetch('/api/alerts')).json();
+  const crit = (r.alerts||[]).filter(a=>a.severity==='CRITICAL').length;
+  const d = document.getElementById('bellDot'); if(d) d.style.display = crit?'block':'none';
+}catch(e){} })();
+boot();
+</script>
+</body>
+</html>
