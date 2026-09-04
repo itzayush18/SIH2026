@@ -18,6 +18,35 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sagar.core import pipeline
+from sagar.core.geoutil import haversine
+
+
+def proximity_ranking(rep):
+    """Rank vessels by closest approach to the observed slick centroid.
+
+    This is the naive baseline the physics has to beat: "whoever was nearest
+    the oil did it". It deliberately ignores drift entirely, using each
+    vessel's closest ping to where the slick was *seen* rather than where it
+    was released. Ranking by that distance is what an operator without a
+    drift model would do, so the gap between this and the pipeline's ranking
+    is the measurable contribution of the hindcast and source inversion.
+    """
+    det = rep["detections"][0]
+    slon, slat = det.centroid_lonlat
+    out = []
+    for v in rep["vessels"].values():
+        pings = v.sorted_pings()
+        if not pings:
+            continue
+        d = min(haversine(p.lat, p.lon, slat, slon) for p in pings) / 1000.0
+        out.append((d, v.mmsi))
+    out.sort()
+    return [mmsi for _, mmsi in out]
+
+
+def topk_hit(ranking, true_mmsi, k):
+    """Did the true polluter land in the first k of this ranking?"""
+    return bool(true_mmsi) and true_mmsi in ranking[:k]
 
 
 def main():
@@ -38,7 +67,15 @@ def main():
             rows.append(dict(seed=seed, failed=str(exc)))
             continue
         v = r["validation"]
-        rows.append(dict(seed=seed, runtime_s=time.time() - t0, **{
+        # Baseline comparison: same scene, same traffic, no physics.
+        true_mmsi = r["truth"].mmsi if r.get("truth") is not None else None
+        prox = proximity_ranking(r)
+        ours = [s.mmsi for s in r["suspects"]]
+        rows.append(dict(seed=seed, runtime_s=time.time() - t0,
+                         ours_top1=topk_hit(ours, true_mmsi, 1),
+                         ours_top3=topk_hit(ours, true_mmsi, 3),
+                         prox_top1=topk_hit(prox, true_mmsi, 1),
+                         prox_top3=topk_hit(prox, true_mmsi, 3), **{
             k: v[k] for k in ("pdf_peak_error_km", "inversion_error_km",
                               "inversion_time_error_h", "inversion_course_error_deg",
                               "inversion_iou", "attribution_correct")},
@@ -69,6 +106,12 @@ def main():
                    pdf_peak_error_km=agg("pdf_peak_error_km"),
                    score_margin=agg("margin"),
                    attribution_accuracy=sum(r["attribution_correct"] for r in ok) / len(ok),
+                   baseline=dict(
+                       ours_top1=sum(r["ours_top1"] for r in ok) / len(ok),
+                       ours_top3=sum(r["ours_top3"] for r in ok) / len(ok),
+                       proximity_top1=sum(r["prox_top1"] for r in ok) / len(ok),
+                       proximity_top3=sum(r["prox_top3"] for r in ok) / len(ok),
+                   ),
                    runtime_s=agg("runtime_s"), runs=rows)
 
     print("\n=== summary over", len(ok), "scenarios ===")
@@ -86,6 +129,14 @@ def main():
     print(f"attribution accuracy  {summary['attribution_accuracy']*100:.0f}%")
     print(f"top-1 score margin    {summary['score_margin']['mean']:.2f}")
     print(f"runtime per scenario  {summary['runtime_s']['mean']:.0f}s")
+
+    b = summary["baseline"]
+    print(f"\n--- vs proximity baseline ('nearest ship did it') ---")
+    print(f"{'':22s} {'Top-1':>7s} {'Top-3':>7s}")
+    print(f"{'proximity only':22s} {b['proximity_top1']*100:6.0f}% {b['proximity_top3']*100:6.0f}%")
+    print(f"{'SAGAR-DRISHTI':22s} {b['ours_top1']*100:6.0f}% {b['ours_top3']*100:6.0f}%")
+    lift = (b["ours_top1"] - b["proximity_top1"]) * 100
+    print(f"{'physics contribution':22s} {lift:+6.0f} pts on Top-1")
 
     os.makedirs(os.path.dirname(a.json) or ".", exist_ok=True)
     with open(a.json, "w") as f:
