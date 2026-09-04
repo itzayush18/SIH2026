@@ -124,3 +124,72 @@ taken at port state inspection.
 - The metocean fields are analytic. Real CMEMS/ERA5 fields have structure the
   inversion will find harder- and the honest test of this design is how much
   the inversion error grows when they are swapped in.
+
+## 7. Prior art and the operational gap (verified 2026-09-04)
+
+Sourced comparison behind §7 of `docs/OILTRACE_Project_Report.pdf`. Claims that
+could not be traced to a primary source are recorded as unverified rather than
+quoted.
+
+### India
+
+- **INCOIS Online Oil Spill Advisory (OOSA)** — established 2015; v3.0 inaugurated
+  at the 21st NOSDCP meeting (05.08.2016); public user manual dated Dec 2020;
+  **upgraded to Version 5.0** per the [INCOIS Annual Report 2023-24](https://www.incois.gov.in/documents/Reports/AnnualReports/AR_2023-24_20250813165305.pdf).
+  Live at <https://oosa.incois.gov.in>.
+  **The commonly repeated claim that India's oil spill system has not been updated
+  since 2019 is false and must not be used.** No 2019 milestone exists for any
+  Indian oil spill system.
+  OOSA's actual limitation is scope, not staleness: it wraps **NOAA GNOME** in
+  diagnostic mode (INCOIS ROMS/HYCOM/MOM currents, ECMWF/NCMRWF/WRF winds) and
+  requires the operator to **enter spill position, time, pollutant and quantity by
+  hand**. It performs no detection and no attribution — grepping the 2023-24
+  Annual Report for `AIS`, `attribution`, `polluter`, `synthetic aperture` returns
+  nothing relevant.
+- **NOSDCP** — *source conflict, state it as one*: Indian Coast Guard material puts
+  the revised edition-2015 at the 20th NOSDCP meeting (Goa, 09 Apr 2015); ITOPF's
+  India profile says promulgated 1996, last updated 2014. Safe phrasing: promulgated
+  1996, major revision 2014/2015, maintained by circular since.
+- **ISRO/NRSC** — no *operational, continuously-running* national detection service
+  could be verified. Oil spill mapping over Indian seas appears as research; one-off
+  detections are documented (EOS-04, Kerala coast, 27 May 2025). Phrase as absence
+  of evidence.
+
+### International
+
+- **EMSA CleanSeaNet** — operational since April 2007; >3,000 images/yr; analysed
+  imagery to national contact points **in under 30 minutes** of acquisition; 1,586
+  class A + 1,582 class B detections in 2016; detections per million km² roughly
+  halved 2007→2017. Analysis is **semi-automatic with trained operators**, offering
+  *potential polluter identification*; verification is explicitly left to Member
+  States. Attribution is **not** automated end to end.
+- **NOAA GNOME / ERMA**, **OpenDrift/OpenOil** (Dagestad et al., Geosci. Model Dev.
+  11, 1405–1420, 2018) — trajectory and response only, no detection, no attribution.
+- **SkyTruth Cerulean** (2023) — the closest prior art and the only system found that
+  automates AIS-to-slick attribution: ResNet34 U-Net on Sentinel-1 VV GRD, vessels
+  ranked by parity/proximity/temporality over an AIS window of −8 h to +6 h.
+  Reported **92% top-5, 76% top-1**. An NGO transparency tool, not an enforcement
+  system, and not deployed for Indian waters.
+
+### The enforcement gap
+
+- **~80% of confirmed slicks have no identified polluter** — [Bonn Agreement aerial
+  surveillance report 2008, para 11](https://www.bonnagreement.org/site/assets/files/3949/2008-report-on-aerial-surveillance.pdf).
+  The single best citation for "detection without attribution".
+- **76% of successful US MARPOL prosecutions originated from whistleblowers**, not
+  surveillance — National Whistleblower Center analysis of 100 APPS prosecutions,
+  1993–2017.
+- SkyTruth found **no case where satellite imagery was dispositive** in a bilge
+  dumping prosecution; it corroborates only.
+- Oil disperses within ~12 h of discharge, which is why late attribution fails.
+
+### Deliberately not quoted
+
+- Any single **cost-per-tonne** figure. ITOPF's own data spans US$583/MT to ~US$2M/MT
+  and they state an average "has little practicable meaning". Cite the range or nothing.
+- The widely circulated **"206,000 tonnes/year operational discharges"** figure — not
+  traceable to a primary source. *Oil in the Sea IV* (National Academies, 2022) puts
+  tank vessel operational discharges at **~1,730 t/yr (2020)**, and notes there is no
+  quantitative data on current non-compliance.
+- Annual illegal discharge volume in Indian waters; global MARPOL conviction rates —
+  no comprehensive public source found. That absence is itself worth stating.
