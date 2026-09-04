@@ -22,3 +22,5 @@ C:/Temp/
 # legacy web/ removed- frontend/ is now the single source (2026-08-30)
 
 venv/
+# Regenerable by scripts/eval_classifier.py
+data/classifier_eval.npz
