@@ -126,6 +126,8 @@ export interface Report {
     evidence_pack: { json: string; geojson: string; csv: string; outdir: string };
     provenance: { generated_at: string; data_mode: string; chain: string[]; model_versions: Record<string, string> };
     data_mode: string;
+    /** Which model produced the detections: "unet" or "logistic-8feature". */
+    detector?: string;
     providers: Source[];
   };
   dark_vessels?: { mmsi: string; lat: number; lon: number; is_dark: boolean }[];

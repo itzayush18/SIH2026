@@ -21,6 +21,36 @@ from .geoutil import Origin, haversine
 DEFAULT_ORIGIN = Origin(lat=19.35, lon=71.80)
 
 
+#: Where a trained U-Net checkpoint is looked for. Override with SAGAR_UNET.
+UNET_DEFAULT_PATH = "data/models/unet_v1.pt"
+
+
+def _run_detector(scene, emit):
+    """Detect slicks with the U-Net when one is available, else the logistic.
+
+    Selection is explicit and fails loudly in only one direction: if a
+    checkpoint is configured but unusable (torch missing, file corrupt), we
+    fall back to the logistic detector and *say so* through `emit`, rather
+    than silently reporting U-Net provenance for logistic results. The
+    returned detector name is carried into the report so the dashboard and
+    evidence pack can state which model produced the detections.
+    """
+    path = os.environ.get("SAGAR_UNET", UNET_DEFAULT_PATH)
+    if os.path.exists(path):
+        try:
+            from . import unet_detect
+            dets, labels = unet_detect.detect(scene, path)
+            if dets:
+                emit("detect", {"message": f"U-Net segmenter ({os.path.basename(path)})"})
+                return dets, labels, "unet"
+            emit("detect", {"message": "U-Net returned no regions- using logistic detector"})
+        except Exception as exc:
+            emit("detect", {"message": f"U-Net unavailable ({exc})- using logistic detector"})
+
+    dets, labels = detect.detect(scene)
+    return dets, labels, "logistic-8feature"
+
+
 def _drift_speed(ocean, epoch, lat, lon):
     f = ocean.sample(epoch, lat, lon)
     ax = f.u_cur + 0.03 * f.u_wind
@@ -50,7 +80,7 @@ def run_with_scene(scene, ocean, vessels_or_path=None, seed=11,
     emit = on_stage or (lambda *_: None)
 
     emit("detect", {"message": "Speckle-filtering, detrending, thresholding"})
-    detections, labels = detect.detect(scene)
+    detections, labels, detector = _run_detector(scene, emit)
     if not detections:
         raise RuntimeError("no slick detected")
     top = detections[0]
@@ -142,6 +172,7 @@ def run_with_scene(scene, ocean, vessels_or_path=None, seed=11,
         )
 
     return dict(
+        detector=detector,
         scene=scene, ocean=ocean, truth=truth, detections=detections,
         labels=labels, mask=mask, metrics=metrics, characterization=char,
         back=back, fwd=fwd, pdf=pdf, peak=peak, vessels=vessels, source=hyp, source_dispersion=spread,

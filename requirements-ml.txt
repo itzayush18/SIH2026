@@ -1,0 +1,12 @@
+# Optional: U-Net segmenter (sagar/core/unet_detect.py, scripts/train_unet.py).
+#
+# Deliberately kept out of requirements.txt. The core pipeline runs on five
+# pure-Python wheels with no GPU, and the logistic detector is the default;
+# installing torch is opt-in for teams that want to train or run the U-Net.
+#
+#   .venv/bin/pip install -r requirements-ml.txt
+#
+# Then place a trained checkpoint at data/models/unet_v1.pt (or point
+# SAGAR_UNET at one) and the pipeline picks it up automatically.
+torch>=2.0
+segmentation-models-pytorch>=0.3.3

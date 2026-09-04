@@ -215,6 +215,7 @@ export default function RightPanel({ report }: { report: Report | null }) {
                 <div className="flex justify-between py-1.5 text-sm"><span className="text-slate-500">Thickness</span><span className="font-mono font-semibold">{(c.thickness_m*1e6).toFixed(1)} µm</span></div>
                 <div className="flex justify-between py-1.5 text-sm"><span className="text-slate-500">Volume</span><span className="font-mono font-semibold">{Number(c.volume_m3).toFixed(0)} m³ · {Number(c.tonnes).toFixed(0)} t</span></div>
                 <div className="flex justify-between py-1.5 text-sm"><span className="text-slate-500">Age confidence</span><span className="font-mono font-semibold">{c.confidence} (×{Number(c.age_uncertainty_factor).toFixed(1)})</span></div>
+                <div className="flex justify-between py-1.5 text-sm"><span className="text-slate-500">Detector</span><span className="font-mono font-semibold">{o.detector === 'unet' ? 'U-Net segmenter' : '8-feature logistic'}</span></div>
               </div>
             </div>
 

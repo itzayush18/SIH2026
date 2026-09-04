@@ -119,6 +119,9 @@ def run(scenario_slug, outdir_root, on_stage=None):
         alerts=a, patrol=p, evidence_pack=pack,
         provenance=prov,
         data_mode=data_mode,
+        # Which model actually produced the detections, so the UI and the
+        # evidence pack never imply a U-Net ran when the logistic one did.
+        detector=r.get("detector", "logistic-8feature"),
         providers=[s.dict() for s in providers.registry_for_mode(data_mode)],
     )
     # Clean NaN/Inf for browser JSON compliance (mirrors sagar/api/export._clean)
