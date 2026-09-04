@@ -85,6 +85,27 @@ class Store:
 STORE = Store()
 
 
+def _validation_aggregates(recs):
+    """Aggregate validation metrics over only the incidents that have them.
+
+    Real-imagery incidents carry no synthetic ground truth, so their
+    `inversion_error_km` and `attribution_correct` are legitimately None.
+    Averaging over every incident therefore raises (None + float), and
+    counting them as failures would understate accuracy. Both are computed
+    over the scored subset, with `validated` reporting its size so the
+    denominator is visible rather than implied.
+    """
+    errs = [r["validation"]["inversion_error_km"] for r in recs
+            if r.get("validation", {}).get("inversion_error_km") is not None]
+    attr = [bool(r["validation"]["attribution_correct"]) for r in recs
+            if r.get("validation", {}).get("attribution_correct") is not None]
+    return dict(
+        validated=len(errs),
+        avg_inversion_error_km=(sum(errs) / len(errs)) if errs else None,
+        attribution_correct_rate=(sum(attr) / len(attr)) if attr else None,
+    )
+
+
 def _sim_banner(payload, mode=None):
     """Wrap every response in a mode header- spec §56 and honest per-incident labelling.
 
@@ -280,9 +301,7 @@ def build_app():
             incidents=n, mean_p_oil=p_oil, mean_area_km2=area,
             candidate_vessels=cands,
             by_severity=by_sev, by_jurisdiction=by_jur,
-            avg_inversion_error_km=sum(r["validation"]["inversion_error_km"] for r in recs) / n,
-            attribution_correct_rate=sum(1 for r in recs
-                                         if r["validation"]["attribution_correct"]) / n,
+            **_validation_aggregates(recs),
         ))
 
     # ---- analysis (run one) ----------------------------------------------
