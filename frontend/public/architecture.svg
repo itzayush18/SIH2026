@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 750" style="background-color: #f8fafc; font-family: system-ui, -apple-system, sans-serif;">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6" />
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.05" />
+    </filter>
+    <style>
+      @keyframes dash {
+        to { stroke-dashoffset: -24; }
+      }
+      .animated-path {
+        fill: none;
+        stroke: #3b82f6;
+        stroke-width: 2;
+        stroke-dasharray: 6 6;
+        animation: dash 1s linear infinite;
+        stroke-linejoin: round;
+      }
+      .node-rect {
+        fill: #ffffff;
+        stroke: #cbd5e1;
+        stroke-width: 2;
+        rx: 8;
+        filter: url(#shadow);
+      }
+      .node-rect-dark {
+        fill: #0f172a;
+        stroke: #0f172a;
+        stroke-width: 2;
+        rx: 8;
+        filter: url(#shadow);
+      }
+      .title {
+        font-weight: 700;
+        fill: #0f172a;
+        font-size: 16px;
+        text-anchor: middle;
+      }
+      .title-light {
+        font-weight: 700;
+        fill: #ffffff;
+        font-size: 16px;
+        text-anchor: middle;
+      }
+      .subtitle {
+        font-weight: 500;
+        fill: #64748b;
+        font-size: 12px;
+        text-anchor: middle;
+      }
+      .subtitle-light {
+        font-weight: 500;
+        fill: #94a3b8;
+        font-size: 12px;
+        text-anchor: middle;
+      }
+      .main-title {
+        font-weight: 800;
+        fill: #0f172a;
+        font-size: 24px;
+        text-anchor: middle;
+        letter-spacing: -0.5px;
+      }
+    </style>
+  </defs>
+
+  <text x="500" y="40" class="main-title">OilTrace - System Architecture</text>
+
+  <!-- Paths Layer (underneath nodes) -->
+  <g>
+    <!-- Inputs to Ingestion -->
+    <path class="animated-path" d="M 250 140 L 250 170 L 460 170 L 460 193" marker-end="url(#arrow)" />
+    <path class="animated-path" d="M 500 140 L 500 193" marker-end="url(#arrow)" />
+    <path class="animated-path" d="M 750 140 L 750 170 L 540 170 L 540 193" marker-end="url(#arrow)" />
+
+    <!-- Ingestion to Engines -->
+    <path class="animated-path" d="M 460 260 L 460 300 L 250 300 L 250 333" marker-end="url(#arrow)" />
+    <path class="animated-path" d="M 500 260 L 500 333" marker-end="url(#arrow)" />
+    <path class="animated-path" d="M 540 260 L 540 300 L 750 300 L 750 333" marker-end="url(#arrow)" />
+
+    <!-- Engines horizontal communication -->
+    <path class="animated-path" d="M 350 375 L 393 375" marker-end="url(#arrow)" />
+    <path class="animated-path" d="M 600 375 L 643 375" marker-end="url(#arrow)" />
+
+    <!-- Engines to Fusion -->
+    <path class="animated-path" d="M 250 410 L 250 440 L 460 440 L 460 463" marker-end="url(#arrow)" />
+    <path class="animated-path" d="M 500 410 L 500 463" marker-end="url(#arrow)" />
+    <path class="animated-path" d="M 750 410 L 750 440 L 540 440 L 540 463" marker-end="url(#arrow)" />
+
+    <!-- Fusion to Outputs -->
+    <path class="animated-path" d="M 460 530 L 460 570 L 250 570 L 250 603" marker-end="url(#arrow)" />
+    <path class="animated-path" d="M 500 530 L 500 603" marker-end="url(#arrow)" />
+    <path class="animated-path" d="M 540 530 L 540 570 L 750 570 L 750 603" marker-end="url(#arrow)" />
+  </g>
+
+  <!-- Nodes Layer -->
+  <g>
+    <!-- Input 1 -->
+    <rect class="node-rect" x="160" y="80" width="180" height="60" />
+    <text x="250" y="108" class="title">Sentinel-1 (SAR)</text>
+    <text x="250" y="128" class="subtitle">Radar Imagery</text>
+
+    <!-- Input 2 -->
+    <rect class="node-rect" x="410" y="80" width="180" height="60" />
+    <text x="500" y="108" class="title">CMEMS Data</text>
+    <text x="500" y="128" class="subtitle">Ocean Currents &amp; Wind</text>
+
+    <!-- Input 3 -->
+    <rect class="node-rect" x="660" y="80" width="180" height="60" />
+    <text x="750" y="108" class="title">AIS Feed</text>
+    <text x="750" y="128" class="subtitle">Vessel Trajectories</text>
+
+    <!-- Ingestion Gateway -->
+    <rect class="node-rect-dark" x="380" y="200" width="240" height="60" />
+    <text x="500" y="228" class="title-light">Data Ingestion Gateway</text>
+    <text x="500" y="248" class="subtitle-light">Stream Processing &amp; Sync</text>
+
+    <!-- Engine 1 -->
+    <rect class="node-rect" x="150" y="340" width="200" height="70" />
+    <text x="250" y="372" class="title">Spill Detection</text>
+    <text x="250" y="392" class="subtitle">SAR CV Segmentation</text>
+
+    <!-- Engine 2 -->
+    <rect class="node-rect" x="400" y="340" width="200" height="70" />
+    <text x="500" y="372" class="title">Hindcast Drift Model</text>
+    <text x="500" y="392" class="subtitle">Fluid Dynamics Engine</text>
+
+    <!-- Engine 3 -->
+    <rect class="node-rect" x="650" y="340" width="200" height="70" />
+    <text x="750" y="372" class="title">AIS Attribution</text>
+    <text x="750" y="392" class="subtitle">Spatial-Temporal Matrix</text>
+
+    <!-- Fusion -->
+    <rect class="node-rect-dark" x="380" y="470" width="240" height="60" />
+    <text x="500" y="498" class="title-light">Intelligence Fusion</text>
+    <text x="500" y="518" class="subtitle-light">Confidence Scoring</text>
+
+    <!-- Output 1 -->
+    <rect class="node-rect" x="160" y="610" width="180" height="60" stroke="#059669" />
+    <text x="250" y="638" class="title" fill="#059669">Web Dashboard</text>
+    <text x="250" y="658" class="subtitle">React / MapLibre GL</text>
+
+    <!-- Output 2 -->
+    <rect class="node-rect" x="410" y="610" width="180" height="60" stroke="#d97706" />
+    <text x="500" y="638" class="title" fill="#d97706">Forensic Reports</text>
+    <text x="500" y="658" class="subtitle">PDF Generation</text>
+
+    <!-- Output 3 -->
+    <rect class="node-rect" x="660" y="610" width="180" height="60" stroke="#dc2626" />
+    <text x="750" y="638" class="title" fill="#dc2626">REST API</text>
+    <text x="750" y="658" class="subtitle">B2B / Govt Integration</text>
+  </g>
+</svg>
